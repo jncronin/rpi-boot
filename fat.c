@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <dirent.h>
+#include "vfs.h"
 #include "fs.h"
 
 struct fat_fs {
@@ -80,25 +81,37 @@ struct fat_BS
 #define VFAT		3
 
 static struct dirent *fat_read_dir(struct fat_fs *fs, struct dirent *d);
+struct dirent *fat_read_directory(struct fs *fs, char **name);
+static size_t fat_read_from_file(struct fat_fs *fs, uint32_t starting_cluster, uint8_t *buf,
+		size_t byte_count, size_t offset);
 
 static const char *fat_names[] = { "FAT12", "FAT16", "FAT32", "VFAT" };
 
-static FILE *fat_fopen(struct fs *fs, const char *path, const char *mode)
+static FILE *fat_fopen(struct fs *fs, struct dirent *path, const char *mode)
 {
-	(void)fs;
-	(void)path;
+	if(fs != path->fs)
+		return (FILE *)0;
+
+	struct vfs_file *ret = (struct vfs_file *)malloc(sizeof(struct vfs_file));
+	memset(ret, 0, sizeof(struct vfs_file));
+	ret->fs = fs;
+	ret->pos = 0;
+	ret->opaque = path->opaque;
+	ret->len = (long)path->byte_size;
+
 	(void)mode;
-	return (void *)0;
+	return ret;
 }
 
 static size_t fat_fread(struct fs *fs, void *ptr, size_t size, size_t nmemb, FILE *stream)
 {
-	(void)fs;
-	(void)ptr;
-	(void)size;
-	(void)nmemb;
-	(void)stream;
-	return 0;
+	if(stream->fs != fs)
+		return -1;
+	if(stream->opaque == (void *)0)
+		return -1;
+
+	return fat_read_from_file((struct fat_fs *)fs, (uint32_t)stream->opaque, (uint8_t *)ptr,
+			size * nmemb, (size_t)stream->pos);
 }
 
 static int fat_fclose(struct fs *fs, FILE *fp)
@@ -108,31 +121,12 @@ static int fat_fclose(struct fs *fs, FILE *fp)
 	return 0;
 }
 
-static DIR *fat_opendir(struct fs *fs, const char *name)
-{
-	(void)fs;
-	(void)name;
-	return (void *)0;
-}
-
-static struct dirent *fat_readdir(struct fs *fs, DIR *dirp)
-{
-	(void)fs;
-	(void)dirp;
-	return (void *)0;
-}
-
-static int fat_closedir(struct fs *fs, DIR *dirp)
-{
-	(void)fs;
-	(void)dirp;
-	return 0;
-}
-
 int fat_init(struct block_device *parent, struct fs **fs)
 {
 	// Interpret a FAT file system
+#ifdef DEBUG
 	printf("FAT: looking for a filesytem on %s\n", parent->device_name);
+#endif
 
 	// Read block 0
 	uint8_t *block_0 = (uint8_t *)malloc(512);
@@ -149,6 +143,7 @@ int fat_init(struct block_device *parent, struct fs **fs)
 	}
 
 	// Dump the boot block
+#ifdef DEBUG
 	int j = 0;
 	for(int i = 0; i < 90; i++)
 	{
@@ -162,6 +157,7 @@ int fat_init(struct block_device *parent, struct fs **fs)
 	}
 	if(j != 0)
 		printf("\n");
+#endif
 
 	struct fat_BS *bs = (struct fat_BS *)block_0;
 	if(bs->bootjmp[0] != 0xeb)
@@ -179,9 +175,7 @@ int fat_init(struct block_device *parent, struct fs **fs)
 	ret->b.fopen = fat_fopen;
 	ret->b.fread = fat_fread;
 	ret->b.fclose = fat_fclose;
-	ret->b.opendir = fat_opendir;
-	ret->b.readdir = fat_readdir;
-	ret->b.closedir = fat_closedir;
+	ret->b.read_directory = fat_read_directory;
 	ret->b.parent = parent;
 
 	ret->total_sectors = total_sectors;
@@ -196,10 +190,12 @@ int fat_init(struct block_device *parent, struct fs **fs)
 	ret->sectors_per_cluster = (uint32_t)bs->sectors_per_cluster;
 	ret->bytes_per_sector = (uint32_t)bs->bytes_per_sector;
 
+#ifdef DEBUG
 	printf("FAT: reading a %s filesystem: total_sectors %i, sectors_per_cluster %i, "
 		       "bytes_per_sector %i\n",
 	       ret->b.fs_name, ret->total_sectors, ret->sectors_per_cluster,
 		ret->bytes_per_sector);
+#endif
 
 	// Interpret the extended bpb
 	ret->vol_label = (char *)malloc(12);
@@ -216,9 +212,11 @@ int fat_init(struct block_device *parent, struct fs **fs)
 		ret->first_non_root_sector = ret->first_data_sector;
 		ret->sectors_per_fat = bs->ext.fat32.table_size_32;
 
+#ifdef DEBUG
 		printf("FAT: first_data_sector: %i, first_fat_sector: %i\n",
 				ret->first_data_sector,
 				ret->first_fat_sector);
+#endif
 
 
 
@@ -229,7 +227,9 @@ int fat_init(struct block_device *parent, struct fs **fs)
 
 		strcpy(ret->vol_label, bs->ext.fat16.volume_label);
 		ret->vol_label[11] = 0;
+#ifdef DEBUG
 		printf("FAT: volume label: %s\n", ret->vol_label);
+#endif
 
 		ret->first_data_sector = bs->reserved_sector_count + (bs->table_count *
 				bs->table_size_16);
@@ -239,6 +239,7 @@ int fat_init(struct block_device *parent, struct fs **fs)
 		ret->root_dir_sectors = (ret->root_dir_entries * 32 + ret->bytes_per_sector - 1) /
 			ret->bytes_per_sector;	// The + bytes_per_sector - 1 rounds up the sector no
 
+#ifdef DEBUG
 		printf("FAT: first_data_sector: %i, first_fat_sector: %i\n",
 				ret->first_data_sector,
 				ret->first_fat_sector);
@@ -246,6 +247,7 @@ int fat_init(struct block_device *parent, struct fs **fs)
 		printf("FAT: root_dir_entries: %i, root_dir_sectors: %i\n",
 				ret->root_dir_entries,
 				ret->root_dir_sectors);
+#endif
 
 		ret->first_non_root_sector = ret->first_data_sector + ret->root_dir_sectors;
 	}
@@ -253,7 +255,8 @@ int fat_init(struct block_device *parent, struct fs **fs)
 	*fs = (struct fs *)ret;
 	free(block_0);
 
-	fat_read_dir(ret, (void*)0);
+	printf("FAT: found a %s filesystem on %s\n", ret->b.fs_name, ret->b.parent->device_name);
+
 	return 0;
 }
 
@@ -482,6 +485,7 @@ struct dirent *fat_read_dir(struct fat_fs *fs, struct dirent *d)
 			prev = de;
 
 			de->name = (char *)malloc(13);
+			de->fs = &fs->b;
 			// Convert to lowercase on load
 			int d_idx = 0;
 			int in_ext = 0;
@@ -516,28 +520,10 @@ struct dirent *fat_read_dir(struct fat_fs *fs, struct dirent *d)
 
 			de->opaque = (void*)opaque;
 
+#ifdef DEBUG
 			printf("FAT: read dir entry: %s, size %i, cluster %i\n", 
 					de->name, de->byte_size, opaque);
-			if(de->is_dir)
-			{
-				printf("FAT: reading subdirectory\n");
-				fat_read_dir(fs, de);
-			}
-			else
-			{
-				printf("FAT: reading file\n");
-				char *file_buf = (char *)malloc(de->byte_size);
-				int r_ret = fat_read_from_file(fs, opaque, (uint8_t *)file_buf, 
-						de->byte_size, 0);
-				if(r_ret < 0)
-					printf("FAT: read file returned %i\n", r_ret);
-				else
-				{
-					for(uint32_t idx = 0; idx < de->byte_size; idx++)
-						printf("%c", file_buf[idx]);
-				}
-				free(file_buf);
-			}
+#endif
 		}
 		free(buf);
 

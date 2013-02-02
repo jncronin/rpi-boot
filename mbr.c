@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "block.h"
+#include "vfs.h"
 
 int fat_init(struct block_device *, struct fs **);
 
@@ -35,7 +36,9 @@ int read_mbr(struct block_device *parent, struct block_device ***partitions, int
 
 	/* Read the first 512 bytes */
 	uint8_t *block_0 = (uint8_t *)malloc(512);
+#ifdef DEBUG
 	printf("MBR: reading block 0 from device %s\n", parent->device_name);
+#endif
 	
 	int ret = block_read(parent, block_0, 512, 0);
 	if(ret < 0)
@@ -71,6 +74,7 @@ int read_mbr(struct block_device *parent, struct block_device ***partitions, int
 			// Valid partition
 			struct mbr_block_dev *d =
 				(struct mbr_block_dev *)malloc(sizeof(struct mbr_block_dev));
+			memset(d, 0, sizeof(struct mbr_block_dev));
 			d->bd.driver_name = driver_name;
 			char *dev_name = (char *)malloc(strlen(parent->device_name + 2));
 			strcpy(dev_name, parent->device_name);
@@ -90,9 +94,10 @@ int read_mbr(struct block_device *parent, struct block_device ***partitions, int
 			d->parent = parent;
 			
 			parts[cur_p++] = (struct block_device *)d;
-
+#ifdef DEBUG
 			printf("MBR: partition number %i (%s) of type %x\n", 
 					d->part_no, d->bd.device_name, d->part_id);
+#endif
 
 			switch(d->part_id)
 			{
@@ -110,6 +115,9 @@ int read_mbr(struct block_device *parent, struct block_device ***partitions, int
 					fat_init((struct block_device *)d, &d->bd.fs);
 					break;
 			}
+
+			if(d->bd.fs)
+				vfs_register(d->bd.fs);
 		}
 	}
 

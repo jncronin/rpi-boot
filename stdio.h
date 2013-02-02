@@ -4,7 +4,8 @@
 #include <stdint.h>
 #include <stddef.h>
 
-typedef uint32_t FILE;
+// Include vfs.h to get the FILE definition
+#include "vfs.h"
 
 #define stdin ((FILE *)0)
 #define stdout ((FILE *)1)

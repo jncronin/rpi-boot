@@ -6,6 +6,7 @@
 #include "fb.h"
 #include "console.h"
 #include "block.h"
+#include "vfs.h"
 
 #define UNUSED(x) (void)(x)
 
@@ -69,13 +70,14 @@ extern int def_stream_putc(int, FILE*);
 void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 {
 	UNUSED(atags);
+	UNUSED(boot_dev);
 
 	// First use the serial console
 	stdout_putc = uart_putc;
 	stderr_putc = uart_putc;
 	stream_putc = def_stream_putc;	
 
-	puts("Hello World!");
+	/* puts("Hello World!");
 	puthex(0xdeadbeef);
 	puts("");
 
@@ -91,7 +93,7 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 	puthex(atags);
 	puts("");
 
-	puts("");
+	puts(""); */
 
 	// Dump ATAGS
 	parse_atags(atags, atag_cb);
@@ -114,40 +116,8 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 	struct block_device *sd_dev;
 
 	if(sd_card_init(&sd_dev) == 0)
-	{
-		/*uint8_t *buf = (uint8_t *)malloc(512);
-		sd_dev->read(sd_dev, buf, 512, 0);
-
-		printf("Block 0:\n");
-		int j = 0;
-		for(int i = 0; i < 512; i += 4)
-		{
-			printf("%08x ", *(uint32_t *)&buf[i]);
-			j++;
-			if(j == 8)
-			{
-				j = 0;
-				printf("\n");
-			}
-		}
-
-		sd_dev->read(sd_dev, buf, 512, 1);
-
-		printf("\nBlock 1:\n");
-		j = 0;
-		for(int i = 0; i < 512; i += 4)
-		{
-			printf("%08x ", *(uint32_t *)&buf[i]);
-			j++;
-			if(j == 8)
-			{
-				j = 0;
-				printf("\n");
-			}
-		}*/
-
-		// Attempt to read an mbr
 		read_mbr(sd_dev, (void*)0, (void*)0);
-	}
+
+	test_fopen();
 }
 
