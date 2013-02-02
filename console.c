@@ -25,6 +25,22 @@ void newline()
 {
 	cur_y++;
 	cur_x = 0;
+
+	// Scroll up if necessary
+	if(cur_y == fb_get_height() / CHAR_H)
+	{
+		uint8_t *fb = (uint8_t *)fb_get_framebuffer();
+		int line_byte_width = fb_get_width() * (fb_get_bpp() >> 3);
+		int pitch = fb_get_pitch();
+		int height = fb_get_height();
+
+		for(int line = 0; line < (height - CHAR_H); line++)
+			memcpy(&fb[line * pitch], &fb[(line + CHAR_H) * pitch], line_byte_width);
+		for(int line = height - CHAR_H; line < height; line++)
+			memset(&fb[line * pitch], 0, line_byte_width);
+
+		cur_y--;
+	}
 }
 
 int console_putc(int c)

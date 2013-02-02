@@ -1,0 +1,560 @@
+#include <stdlib.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+#include <dirent.h>
+#include "fs.h"
+
+struct fat_fs {
+	struct fs b;
+	int fat_type;
+	uint32_t total_sectors;
+	uint32_t sectors_per_cluster;
+	uint32_t bytes_per_sector;
+	char *vol_label;
+	uint32_t first_fat_sector;
+	uint32_t first_data_sector;
+	uint32_t sectors_per_fat;
+	uint32_t root_dir_entries;
+	uint32_t root_dir_sectors;
+	uint32_t first_non_root_sector;
+};
+
+// FAT32 extended fields
+struct fat_extBS_32
+{
+	uint32_t		table_size_32;
+	uint16_t		extended_flags;
+	uint16_t		fat_version;
+	uint32_t		root_cluster;
+	uint16_t		fat_info;
+	uint16_t		backup_BS_sector;
+	uint8_t			reserved_0[12];
+	uint8_t			drive_number;
+	uint8_t			reserved_1;
+	uint8_t			boot_signature;
+	uint32_t		volume_id;
+	char			volume_label[11];
+	uint8_t			fat_type_label[8];
+} __attribute__ ((packed));
+
+// FAT 12/16 extended fields
+struct fat_extBS_16
+{
+	uint8_t			bios_drive_num;
+	uint8_t			reserved1;
+	uint8_t			boot_signature;
+	uint32_t		volume_id;
+	char			volume_label[11];
+	uint8_t			fat_type_label[8];
+} __attribute__ ((packed));
+
+// Generic FAT fields
+struct fat_BS
+{
+	uint8_t			bootjmp[3];
+	uint8_t			oem_name[8];
+	uint16_t		bytes_per_sector;
+	uint8_t			sectors_per_cluster;
+	uint16_t		reserved_sector_count;
+	uint8_t			table_count;
+	uint16_t		root_entry_count;
+	uint16_t		total_sectors_16;
+	uint8_t			media_type;
+	uint16_t		table_size_16;
+	uint16_t		sectors_per_track;
+	uint16_t		head_side_count;
+	uint32_t		hidden_sector_count;
+	uint32_t		total_sectors_32;
+
+	union
+	{
+		struct fat_extBS_32	fat32;
+		struct fat_extBS_16	fat16;
+	} ext;
+} __attribute__ ((packed));
+
+#define FAT12		0
+#define FAT16		1
+#define FAT32		2
+#define VFAT		3
+
+static struct dirent *fat_read_dir(struct fat_fs *fs, struct dirent *d);
+
+static const char *fat_names[] = { "FAT12", "FAT16", "FAT32", "VFAT" };
+
+static FILE *fat_fopen(struct fs *fs, const char *path, const char *mode)
+{
+	(void)fs;
+	(void)path;
+	(void)mode;
+	return (void *)0;
+}
+
+static size_t fat_fread(struct fs *fs, void *ptr, size_t size, size_t nmemb, FILE *stream)
+{
+	(void)fs;
+	(void)ptr;
+	(void)size;
+	(void)nmemb;
+	(void)stream;
+	return 0;
+}
+
+static int fat_fclose(struct fs *fs, FILE *fp)
+{
+	(void)fs;
+	(void)fp;
+	return 0;
+}
+
+static DIR *fat_opendir(struct fs *fs, const char *name)
+{
+	(void)fs;
+	(void)name;
+	return (void *)0;
+}
+
+static struct dirent *fat_readdir(struct fs *fs, DIR *dirp)
+{
+	(void)fs;
+	(void)dirp;
+	return (void *)0;
+}
+
+static int fat_closedir(struct fs *fs, DIR *dirp)
+{
+	(void)fs;
+	(void)dirp;
+	return 0;
+}
+
+int fat_init(struct block_device *parent, struct fs **fs)
+{
+	// Interpret a FAT file system
+	printf("FAT: looking for a filesytem on %s\n", parent->device_name);
+
+	// Read block 0
+	uint8_t *block_0 = (uint8_t *)malloc(512);
+	int r = block_read(parent, block_0, 512, 0);
+	if(r < 0)
+	{
+		printf("FAT: error %i reading block 0\n", r);
+		return r;
+	}
+	if(r != 512)
+	{
+		printf("FAT: error reading block 0 (only %i bytes read)\n", r);
+		return -1;
+	}
+
+	// Dump the boot block
+	int j = 0;
+	for(int i = 0; i < 90; i++)
+	{
+		printf("%02x ", block_0[i]);
+		j++;
+		if(j == 8)
+		{
+			j = 0;
+			printf("\n");
+		}
+	}
+	if(j != 0)
+		printf("\n");
+
+	struct fat_BS *bs = (struct fat_BS *)block_0;
+	if(bs->bootjmp[0] != 0xeb)
+	{
+		printf("FAT: not a valid FAT filesystem on %s (%x)\n", parent->device_name,
+				bs->bootjmp[0]);
+		return -1;
+	}
+
+	uint32_t total_sectors = (uint32_t)bs->total_sectors_16;
+	if(total_sectors == 0)
+		total_sectors = bs->total_sectors_32;
+
+	struct fat_fs *ret = (struct fat_fs *)malloc(sizeof(struct fat_fs));
+	ret->b.fopen = fat_fopen;
+	ret->b.fread = fat_fread;
+	ret->b.fclose = fat_fclose;
+	ret->b.opendir = fat_opendir;
+	ret->b.readdir = fat_readdir;
+	ret->b.closedir = fat_closedir;
+	ret->b.parent = parent;
+
+	ret->total_sectors = total_sectors;
+	uint32_t total_clusters = total_sectors / bs->sectors_per_cluster;
+	if(total_clusters < 4085)
+		ret->fat_type = FAT12;
+	else if(total_clusters < 65525)
+		ret->fat_type = FAT16;
+	else
+		ret->fat_type = FAT32;
+	ret->b.fs_name = fat_names[ret->fat_type];
+	ret->sectors_per_cluster = (uint32_t)bs->sectors_per_cluster;
+	ret->bytes_per_sector = (uint32_t)bs->bytes_per_sector;
+
+	printf("FAT: reading a %s filesystem: total_sectors %i, sectors_per_cluster %i, "
+		       "bytes_per_sector %i\n",
+	       ret->b.fs_name, ret->total_sectors, ret->sectors_per_cluster,
+		ret->bytes_per_sector);
+
+	// Interpret the extended bpb
+	ret->vol_label = (char *)malloc(12);
+	if(ret->fat_type == FAT32)
+	{
+		// FAT32
+		strcpy(ret->vol_label, bs->ext.fat32.volume_label);
+		ret->vol_label[11] = 0;
+		printf("FAT: volume label: %s\n", ret->vol_label);
+
+		ret->first_data_sector = bs->reserved_sector_count + (bs->table_count *
+			bs->ext.fat32.table_size_32);
+		ret->first_fat_sector = bs->reserved_sector_count;
+		ret->first_non_root_sector = ret->first_data_sector;
+		ret->sectors_per_fat = bs->ext.fat32.table_size_32;
+
+		printf("FAT: first_data_sector: %i, first_fat_sector: %i\n",
+				ret->first_data_sector,
+				ret->first_fat_sector);
+
+
+
+	}
+	else
+	{	
+		// FAT12/16
+
+		strcpy(ret->vol_label, bs->ext.fat16.volume_label);
+		ret->vol_label[11] = 0;
+		printf("FAT: volume label: %s\n", ret->vol_label);
+
+		ret->first_data_sector = bs->reserved_sector_count + (bs->table_count *
+				bs->table_size_16);
+		ret->first_fat_sector = bs->reserved_sector_count;
+		ret->sectors_per_fat = bs->table_size_16;
+		ret->root_dir_entries = bs->root_entry_count;
+		ret->root_dir_sectors = (ret->root_dir_entries * 32 + ret->bytes_per_sector - 1) /
+			ret->bytes_per_sector;	// The + bytes_per_sector - 1 rounds up the sector no
+
+		printf("FAT: first_data_sector: %i, first_fat_sector: %i\n",
+				ret->first_data_sector,
+				ret->first_fat_sector);
+
+		printf("FAT: root_dir_entries: %i, root_dir_sectors: %i\n",
+				ret->root_dir_entries,
+				ret->root_dir_sectors);
+
+		ret->first_non_root_sector = ret->first_data_sector + ret->root_dir_sectors;
+	}
+
+	*fs = (struct fs *)ret;
+	free(block_0);
+
+	fat_read_dir(ret, (void*)0);
+	return 0;
+}
+
+uint32_t get_sector(struct fat_fs *fs, uint32_t rel_cluster)
+{
+	rel_cluster -= 2;
+	return fs->first_non_root_sector + rel_cluster * fs->sectors_per_cluster;
+}
+
+static uint32_t get_next_fat_entry(struct fat_fs *fs, uint32_t current_cluster)
+{
+	switch(fs->fat_type)
+	{
+		case FAT16:
+			{
+				uint32_t fat_offset = current_cluster << 1; // *2
+				uint32_t fat_sector = fs->first_fat_sector +
+					(fat_offset / fs->bytes_per_sector);
+				uint8_t *buf = (uint8_t *)malloc(512);
+				int br_ret = block_read(fs->b.parent, buf, 512, fat_sector);
+				if(br_ret < 0)
+				{
+					printf("FAT: block_read returned %i\n");
+					return 0x0ffffff7;
+				}
+				uint32_t fat_index = fat_offset % fs->bytes_per_sector;
+				uint32_t next_cluster = (uint32_t)*(uint16_t *)&buf[fat_index];
+				free(buf);
+				if(next_cluster >= 0xfff7)
+					next_cluster |= 0x0fff0000;
+				return next_cluster;
+			}
+
+		case FAT32:
+			{
+				uint32_t fat_offset = current_cluster << 2; // *4
+				uint32_t fat_sector = fs->first_fat_sector +
+					(fat_offset / fs->bytes_per_sector);
+				uint8_t *buf = (uint8_t *)malloc(512);
+				int br_ret = block_read(fs->b.parent, buf, 512, fat_sector);
+				if(br_ret < 0)
+				{
+					printf("FAT: block_read returned %i\n");
+					return 0x0ffffff7;
+				}
+				uint32_t fat_index = fat_offset % fs->bytes_per_sector;
+				uint32_t next_cluster = *(uint32_t *)&buf[fat_index];
+				free(buf);
+				return next_cluster & 0x0fffffff; // FAT32 is actually FAT28
+			}
+		default:
+			printf("FAT: fat type %s not supported\n", fs->b.fs_name);
+			return 0;
+	}
+}
+
+struct dirent *fat_read_directory(struct fs *fs, char **name)
+{
+	struct dirent *cur_dir = fat_read_dir((struct fat_fs *)fs, (void*)0);
+	while(*name)
+	{
+		// Search the directory entries for one of the requested name
+		int found = 0;
+		while(cur_dir)
+		{
+			if(!strcmp(*name, cur_dir->name))
+			{
+				found = 1;
+				cur_dir = fat_read_dir((struct fat_fs *)fs, cur_dir);
+				name++;
+				break;
+			}			
+		}
+		if(!found)
+		{
+			printf("FAT: path part %s not found\n", *name);
+			return (void*)0;
+		}
+	}
+	return cur_dir;
+}
+
+static size_t fat_read_from_file(struct fat_fs *fs, uint32_t starting_cluster, uint8_t *buf,
+		size_t byte_count, size_t offset)
+{
+	uint32_t cur_cluster = starting_cluster;
+	size_t cluster_size = fs->bytes_per_sector * fs->sectors_per_cluster;
+
+	size_t location_in_file = 0;
+	int buf_ptr = 0;
+	while(cur_cluster < 0x0ffffff8)
+	{
+		if((location_in_file + cluster_size) > offset)
+		{
+			if(location_in_file < (offset + byte_count))
+			{
+				// This cluster contains part of the requested file
+				// Load it
+				
+				uint32_t sector = get_sector(fs, cur_cluster);
+				uint8_t *read_buf = (uint8_t *)malloc(cluster_size);
+				int rb_ret = block_read(fs->b.parent, read_buf, cluster_size, sector);
+
+				if(rb_ret < 0)
+					return rb_ret;
+
+				// Now decide how much of this sector we need to load
+				int len;
+				int c_ptr;
+
+				if(offset >= location_in_file)
+				{
+					// This is the first cluster containing the file
+					buf_ptr = 0;
+					c_ptr = offset - location_in_file;
+					len = byte_count;
+					if(len > (int)cluster_size)
+						len = cluster_size;
+				}
+				else
+				{
+					// We are starting somewhere within the file
+					c_ptr = 0;
+					len = byte_count - buf_ptr;
+					if(len > (int)cluster_size)
+						len = cluster_size;
+					if(len > (int)(byte_count - buf_ptr))
+						len = byte_count - buf_ptr;
+				}
+
+				// Copy to the buffer
+				memcpy(&buf[buf_ptr], &read_buf[c_ptr], len);
+				free(read_buf);
+
+				buf_ptr += len;
+			}
+		}
+
+		cur_cluster = get_next_fat_entry(fs, cur_cluster);
+		location_in_file += cluster_size;
+	}
+
+	return buf_ptr;
+}
+
+struct dirent *fat_read_dir(struct fat_fs *fs, struct dirent *d)
+{
+	int is_root = 0;
+	struct fat_fs *fat = (struct fat_fs *)fs;
+
+	if(d == (void*)0)
+		is_root = 1;
+
+	uint32_t cur_cluster;
+	uint32_t cur_root_cluster_offset = 0;
+	if(is_root)
+	{
+		switch(fat->fat_type)
+		{
+			case FAT12:
+			case FAT16:
+				cur_cluster = 0;
+				break;
+			case FAT32:
+				printf("FAT32 not yet supported\n");
+				return (void*)0;
+		}
+	}
+	else
+		cur_cluster = (uint32_t)d->opaque;
+
+	struct dirent *ret = (void *)0;
+	struct dirent *prev = (void *)0;
+
+	do
+	{
+		/* Read this cluster */
+		uint32_t cluster_size = fat->bytes_per_sector * fat->sectors_per_cluster;
+		uint8_t *buf = (uint8_t *)malloc(cluster_size);
+
+		/* Interpret the cluster number to an absolute address */
+		uint32_t absolute_cluster = cur_cluster;
+		uint32_t first_data_sector = fat->first_data_sector;
+		if(!is_root)
+		{
+			absolute_cluster -= 2;
+			first_data_sector = fat->first_non_root_sector;
+		}
+		
+#ifdef DEBUG
+		printf("FAT: reading cluster %i (sector %i)\n", cur_cluster,
+				absolute_cluster * fat->sectors_per_cluster + first_data_sector);
+#endif
+		int br_ret = block_read(fat->b.parent, buf, cluster_size, 
+				absolute_cluster * fat->sectors_per_cluster + first_data_sector);
+
+		if(br_ret < 0)
+		{
+			printf("FAT: block_read returned %i\n", br_ret);
+			return (void*)0;
+		}
+
+		int ptr = 0;
+
+		for(uint32_t i = 0; i < cluster_size; i++, ptr += 32)
+		{
+			// Does the entry exist (if the first byte is zero of 0xe5 it doesn't)
+			if((buf[ptr] == 0) || (buf[ptr] == 0xe5))
+				continue;
+
+			// Is it the directories '.' or '..'?
+			if(buf[ptr] == '.')
+				continue;
+
+			// Is it a long filename entry (if so ignore)
+			if(buf[ptr + 11] == 0x0f)
+				continue;
+
+			// Else read it
+			struct dirent *de = (struct dirent *)malloc(sizeof(struct dirent));
+			memset(de, 0, sizeof(struct dirent));
+			if(ret == (void *)0)
+				ret = de;
+			if(prev != (void *)0)
+				prev->next = de;
+			prev = de;
+
+			de->name = (char *)malloc(13);
+			// Convert to lowercase on load
+			int d_idx = 0;
+			int in_ext = 0;
+			int has_ext = 0;
+			for(int i = 0; i < 11; i++)
+			{
+				char cur_v = (char)buf[ptr + i];
+				if(i == 8)
+				{
+					in_ext = 1;
+					de->name[d_idx++] = '.';
+				}
+				if(cur_v == ' ')
+					continue;
+				if(in_ext)
+					has_ext = 1;
+				if((cur_v >= 'A') && (cur_v <= 'Z'))
+					cur_v = 'a' + cur_v - 'A';
+				de->name[d_idx++] = cur_v;
+			}
+			if(!has_ext)
+				de->name[d_idx - 1] = 0;
+			else
+				de->name[d_idx] = 0;
+
+			if(buf[ptr + 11] & 0x10)
+				de->is_dir = 1;
+			de->next = (void *)0;
+			de->byte_size = *(uint32_t *)&buf[ptr + 28];
+			uint32_t opaque = *(uint16_t *)&buf[ptr + 26] | 
+				((uint32_t)(*(uint16_t *)&buf[ptr + 20]) << 16);
+
+			de->opaque = (void*)opaque;
+
+			printf("FAT: read dir entry: %s, size %i, cluster %i\n", 
+					de->name, de->byte_size, opaque);
+			if(de->is_dir)
+			{
+				printf("FAT: reading subdirectory\n");
+				fat_read_dir(fs, de);
+			}
+			else
+			{
+				printf("FAT: reading file\n");
+				char *file_buf = (char *)malloc(de->byte_size);
+				int r_ret = fat_read_from_file(fs, opaque, (uint8_t *)file_buf, 
+						de->byte_size, 0);
+				if(r_ret < 0)
+					printf("FAT: read file returned %i\n", r_ret);
+				else
+				{
+					for(uint32_t idx = 0; idx < de->byte_size; idx++)
+						printf("%c", file_buf[idx]);
+				}
+				free(file_buf);
+			}
+		}
+		free(buf);
+
+		// Get the next cluster
+		if(is_root)
+		{
+			cur_root_cluster_offset++;
+			if(cur_root_cluster_offset < (fat->root_dir_sectors /
+						fat->sectors_per_cluster))
+				cur_cluster++;
+			else
+				cur_cluster = 0x0ffffff8;
+		}
+		else
+			cur_cluster = get_next_fat_entry(fat, cur_cluster);
+	} while(cur_cluster < 0x0ffffff7);
+
+	return ret;
+}
+

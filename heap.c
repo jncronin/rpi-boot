@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <stdio.h>
 
 #define MAX_BRK 0x100000
 
@@ -13,6 +14,8 @@ void *sbrk(uint32_t increment)
 	// First set up cur_brk if not done already
 	if(cur_brk == 0)
 	{
+		printf("HEAP: initializing at %x\n", (uint32_t)&_end);
+
 		cur_brk = (uint32_t)&_end;
 		if(cur_brk & 0xfff)
 		{

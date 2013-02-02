@@ -5,6 +5,7 @@
 #include "atag.h"
 #include "fb.h"
 #include "console.h"
+#include "block.h"
 
 #define UNUSED(x) (void)(x)
 
@@ -56,8 +57,8 @@ void atag_cb(struct atag *tag)
 }
 
 void console_test();
-int sd_card_init();
-int sd_read_block(uint32_t block_no, uint8_t *buf);
+int sd_card_init(struct block_device **dev);
+int read_mbr(struct block_device *, struct block_device ***, int *);
 
 extern int (*stdout_putc)(int);
 extern int (*stderr_putc)(int);
@@ -110,10 +111,12 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 	printf("Welcome to Rpi bootloader\n");
 	printf("ARM system type is %x\n", arm_m_type);
 
-	if(sd_card_init() == 0)
+	struct block_device *sd_dev;
+
+	if(sd_card_init(&sd_dev) == 0)
 	{
-		uint8_t *buf = (uint8_t *)malloc(512);
-		sd_read_block(0, buf);
+		/*uint8_t *buf = (uint8_t *)malloc(512);
+		sd_dev->read(sd_dev, buf, 512, 0);
 
 		printf("Block 0:\n");
 		int j = 0;
@@ -127,6 +130,24 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 				printf("\n");
 			}
 		}
+
+		sd_dev->read(sd_dev, buf, 512, 1);
+
+		printf("\nBlock 1:\n");
+		j = 0;
+		for(int i = 0; i < 512; i += 4)
+		{
+			printf("%08x ", *(uint32_t *)&buf[i]);
+			j++;
+			if(j == 8)
+			{
+				j = 0;
+				printf("\n");
+			}
+		}*/
+
+		// Attempt to read an mbr
+		read_mbr(sd_dev, (void*)0, (void*)0);
 	}
 }
 
