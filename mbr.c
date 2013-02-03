@@ -6,6 +6,7 @@
 #include "vfs.h"
 
 int fat_init(struct block_device *, struct fs **);
+int ext2_init(struct block_device *, struct fs **);
 
 // Code for interpreting an mbr
 
@@ -113,6 +114,10 @@ int read_mbr(struct block_device *parent, struct block_device ***partitions, int
 				case 0x1c:
 				case 0x1e:
 					fat_init((struct block_device *)d, &d->bd.fs);
+					break;
+
+				case 0x83:
+					ext2_init((struct block_device *)d, &d->bd.fs);
 					break;
 			}
 
