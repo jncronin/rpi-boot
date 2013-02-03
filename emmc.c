@@ -4,6 +4,8 @@
 /* References:
  *
  * PLSS 	- SD Group Physical Layer Simplified Specification
+ * 
+ * Broadcom BCM2835 Peripherals Guide
  */
 
 #include <stdint.h>

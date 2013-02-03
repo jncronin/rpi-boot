@@ -7,8 +7,14 @@
 #include "console.h"
 #include "block.h"
 #include "vfs.h"
+#include "memchunk.h"
 
 #define UNUSED(x) (void)(x)
+
+uint32_t _atags;
+uint32_t _arm_m_type;
+
+char rpi_boot_name[] = "rpi_boot";
 
 void atag_cb(struct atag *tag)
 {
@@ -42,6 +48,16 @@ void atag_cb(struct atag *tag)
 			puts("size");
 			puthex(tag->u.mem.size);
 			puts("");
+
+			{
+				uint32_t start = tag->u.mem.start;
+				uint32_t size = tag->u.mem.size;
+
+				if(start < 0x100000)
+					start = 0x100000;
+				size -= 0x100000;
+				chunk_register_free(start, size);
+			}
 			
 			break;
 
@@ -67,9 +83,12 @@ extern int (*stream_putc)(int, FILE*);
 extern int console_putc(int);
 extern int def_stream_putc(int, FILE*);
 
+int cfg_parse(char *buf);
+
 void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 {
-	UNUSED(atags);
+	_atags = atags;
+	_arm_m_type = arm_m_type;
 	UNUSED(boot_dev);
 
 	// First use the serial console
@@ -118,6 +137,26 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 	if(sd_card_init(&sd_dev) == 0)
 		read_mbr(sd_dev, (void*)0, (void*)0);
 
-	test_fopen();
+	// List devices
+	printf("MAIN: device list: ");
+	char **devs = vfs_get_device_list();
+	while(*devs)
+		printf("%s ", *devs++);
+	printf("\n");
+
+	// look for a /boot/grub/grub.cfg on the default device
+	FILE *f = fopen("/boot/grub/grub.cfg", "r");
+	if(!f)
+	{
+		printf("No bootloader configuration file found\n");
+	}
+	else
+	{	
+		printf("Found bootloader configuration\n");
+		char *buf = (char *)malloc(f->len);
+		fread(buf, 1, f->len, f);
+		fclose(f);
+		cfg_parse(buf);
+	}
 }
 

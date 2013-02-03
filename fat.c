@@ -328,7 +328,8 @@ struct dirent *fat_read_directory(struct fs *fs, char **name)
 				cur_dir = fat_read_dir((struct fat_fs *)fs, cur_dir);
 				name++;
 				break;
-			}			
+			}
+			cur_dir = cur_dir->next;
 		}
 		if(!found)
 		{

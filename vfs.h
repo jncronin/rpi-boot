@@ -2,7 +2,14 @@
 #define VFS_H
 
 struct vfs_file;
-typedef struct vfs_file FILE;
+
+#include "dirent.h"
+#include "multiboot.h"
+
+#ifdef FILE
+#undef FILE
+#define FILE struct vfs_file
+#endif
 
 #include "fs.h"
 
@@ -27,18 +34,16 @@ void rewind(FILE *stream);
 
 int vfs_register(struct fs *fs);
 void vfs_list_devices();
+char **vfs_get_device_list();
 int vfs_set_default(char *dev_name);
 char *vfs_get_default();
 
 size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream);
 FILE *fopen(const char *path, const char *mode);
 int fclose(FILE *fp);
-struct dirent *read_directory(const char *path);
-
-#define SEEK_SET	0x1000
-#define SEEK_CUR	0x1001
-#define SEEK_END	0x1002
-#define SEEK_START	SEEK_SET
+DIR *opendir(const char *name);
+struct dirent *readdir(DIR *dirp);
+int closedir(DIR *dirp);
 
 #endif
 

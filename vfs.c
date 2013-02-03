@@ -6,10 +6,26 @@
 static struct vfs_entry *first = (void*)0;
 static struct vfs_entry *def = (void*)0;
 
+#define MAX_DEV_NAMES	256
+static char *device_names[MAX_DEV_NAMES] = { 0 };
+static int next_dev_name = 0;
+
 static void vfs_add(struct vfs_entry *ve)
 {
 	ve->next = first;
 	first = ve;
+	
+	if(next_dev_name < (MAX_DEV_NAMES - 1))
+	{
+		device_names[next_dev_name] = ve->device_name;
+		device_names[next_dev_name + 1] = 0;
+		next_dev_name++;
+	}
+}
+
+char **vfs_get_device_list()
+{
+	return device_names;
 }
 
 static struct vfs_entry *find_ve(const char *path)
@@ -117,7 +133,7 @@ static char **split_dir(const char *path, struct vfs_entry **ve)
 	int cur_dir_start = dir_start;
 	while(cur_dir < dir_count)
 	{
-		while(path[cur_idx] != '/')
+		while((path[cur_idx] != '/') && (path[cur_idx] != 0))
 			cur_idx++;
 		// Found a '/'
 		int path_bit_length = cur_idx - cur_dir_start;
@@ -164,7 +180,7 @@ void vfs_list_devices()
 	}
 }
 
-struct dirent *read_directory(const char *path)
+static struct dirent *read_directory(const char *path)
 {
 	char **p;
 	struct vfs_entry *ve;
@@ -175,6 +191,40 @@ struct dirent *read_directory(const char *path)
 	struct dirent *ret = ve->fs->read_directory(ve->fs, p);
 	free_split_dir(p);
 	return ret;
+}
+
+DIR *opendir(const char *name)
+{
+	struct dirent *ret = read_directory(name);
+	if(ret == (void*)0)
+		return (void*)0;
+	struct dir_info *di = (struct dir_info *)malloc(sizeof(struct dir_info));
+	di->first = ret;
+	di->next = ret;
+	return di;
+}
+
+struct dirent *readdir(DIR *dirp)
+{
+	if(dirp == (void*)0)
+		return (void*)0;
+	struct dirent *ret = dirp->next;
+	if(dirp->next)
+		dirp->next = dirp->next->next;
+	return ret;
+}
+
+int closedir(DIR *dirp)
+{
+	if(dirp)
+	{
+		if(dirp->first)
+			free_dirent_list(dirp->first);
+		free(dirp);
+		return 0;
+	}
+	else
+		return -1;
 }
 
 size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream)
@@ -190,6 +240,44 @@ size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream)
 
 	bytes_to_read = stream->fs->fread(stream->fs, ptr, 1, bytes_to_read, stream);
 	return bytes_to_read / size;
+}
+
+int fclose(FILE *fp)
+{
+	if(fp)
+	{
+		free(fp);
+		return 0;
+	}
+	else
+		return -1;
+}
+
+int fseek(FILE *stream, long offset, int whence)
+{
+	if(!stream)
+		return -1;
+	
+	switch(whence)
+	{
+		case SEEK_SET:
+			stream->pos = offset;
+			break;
+		case SEEK_END:
+			stream->pos = stream->len - offset;
+			break;
+		case SEEK_CUR:
+			stream->pos += offset;
+			break;
+		default:
+			return -1;
+	}
+
+	if(stream->pos < 0)
+		stream->pos = 0;
+	if(stream->pos > stream->len)
+		stream->pos = stream->len;
+	return 0;
 }
 
 FILE *fopen(const char *path, const char *mode)

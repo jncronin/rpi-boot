@@ -21,6 +21,20 @@ static int cur_y = 0;
 static uint32_t cur_fore = DEF_FORE;
 static uint32_t cur_back = DEF_BACK;
 
+void clear()
+{
+	int height = fb_get_height();
+	int pitch = fb_get_pitch();
+	int line_byte_width = fb_get_width() * (fb_get_bpp() >> 3);
+	uint8_t *fb = (uint8_t *)fb_get_framebuffer();
+
+	for(int line = 0; line < height; line++)
+		memset(&fb[line * pitch], 0, line_byte_width);
+
+	cur_x = 0;
+	cur_y = 0;
+}
+
 void newline()
 {
 	cur_y++;

@@ -1,0 +1,131 @@
+Multiboot ARM extensions v0.1
+-----------------------------
+
+This is an unofficial extension to the the Multiboot Specification version
+0.6.96, available from
+http://www.gnu.org/software/grub/manual/multiboot/multiboot.html.
+
+It has been adapted to support booting on the ARM architecture.
+
+Please note the changes to the following sections:
+
+3.2 Machine state
+-----------------
+
+Replace all information with the following:
+
+When the boot loader invokes the 32-bit operating system, the machine must have
+the following state:
+
+'R0'
+    Must contain the magic value '0x2BADB002'; the presence of this value
+    indicates to the operating system that it was loaded by a 
+    Multiboot-compliant boot loader (e.g. as opposed to another type of boot
+    loader that the operating system can also be loaded from).
+
+'R1'
+    Must contain the 32-bit physical address of the Multiboot information
+    provided by the boot loader (see Boot information format).
+
+'R2'
+    Will either contain '0' or a valid 'ARM Linux Machine Type', a list of
+    which are maintained at http://www.arm.linux.org.uk/developer/machines/
+
+'R3'
+    Will either contain '0' or a valid pointer to a table of functions
+    provided by the boot loader for enhanced early OS functionality
+    (see 3.2.1 ARM (rpi-boot) Bootloader functions).
+
+'SP'
+    There will be a valid stack provided, however its size is not
+    guaranteed.  The OS image must create its own stack as soon as
+    possible.
+
+All other registers are undefined.
+
+In addition, the system will be running in supervisor mode with virtual
+memory disabled.  Interrupts will be disabled.
+
+The first 1 MiB of physical memory is reserved for the bootloader.  This is
+not reflected in the memory map provided in the multiboot header.  Once the
+OS image has finished parsing the tables provided to it by the bootloader
+and is no longer using any Bootloader functions (see 3.2.1) this memory is
+free for use by the OS.
+
+
+3.2.1 ARM (rpi-boot) Bootloader functions
+-----------------------------------------
+
+This is a new section containing the following:
+
+The reference implementation of the Multiboot ARM extensions (rpi-boot)
+provides the OS image with functions providing functionality to
+enhance early OS development, particularly concerned with debugging
+output and loading files from the file system.
+
+If R3 on boot contains a value other than '0' then it points to a table
+of function pointers:
+
+struct multiboot_arm_functions
+{
+    // Console output functions
+    int (*printf)(const char *format, ...);
+    void (*clear)();
+
+    // File/directory read functions
+    FILE *(*fopen)(const char *path, const char *mode);
+    size_t (*fread)(void *ptr, size_t size, size_t nmemb, FILE *stream);
+    int (*fclose)(FILE *fp);
+    int (*fseek)(FILE *stream, long offset, int whence);
+    DIR *(*opendir)(const char *name);
+    struct dirent *(*readdir)(DIR *dirp);
+    int (*closedir)(DIR *dirp);
+};
+
+with members defined as per POSIX.  In particular the clear() function clears
+the screen and resets the cursor to the top left position.
+
+Path names use the '/' character as a directory delimiter.  Files on a FAT
+filesystem are referenced by their lowercase name (in particular, looking for
+a file using capital letters will cause the search to fail).  Paths can be
+prepended by a device name in round parentheses '()' to determine on which
+device to look for a file.  e.g. to look for the file called testfile.txt
+in the root directory of device 'emmc0_0' the appropriate path would be:
+'(emmc0_0)/testfile.txt'.
+    
+
+3.3 Boot information format
+---------------------------
+
+Please be aware of the following when reading this section:
+
+In the flags field, the following bits will never be set: 8, 10
+
+The following fields have special meaning:
+
+boot_device:
+    This is a pointer to a null terminated string containing the name of the
+    device from which the OS image was loaded.
+
+drives_addr:
+    This is a pointer to a list of pointers to null terminated strings
+    containing all the storage device names known to the bootloader.
+
+dives_length:
+    This is the length of the above list.
+
+vbe_control_info, vbe_mode_info, vbe_mode, vbe_interface_seg,
+vbe_interface_off, vbe_interface_len:
+    These are redefined to the following:
+    
+    Offset	Name		Function
+
+    72		fb_addr		Physical address of the linear framebuffer
+    76		fb_size		Frame buffer width << 16 | height
+    80		fb_pitch	Bytes between each physical line
+    84		fb_depth	Bits per pixel << 16 | pixel_order
+					pixel_order:
+					0:	BGR
+					1:	RGB
+
+
