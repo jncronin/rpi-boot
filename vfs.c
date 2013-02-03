@@ -40,6 +40,17 @@ static struct vfs_entry *find_ve(const char *path)
 	return (void *)0;
 }
 
+int vfs_set_default(char *dev_name)
+{
+	struct vfs_entry *dev = find_ve(dev_name);
+	if(dev)
+	{
+		def = dev;
+		return 0;
+	}
+	return -1;
+}
+
 static void free_split_dir(char **sp)
 {
 	char **s = sp;

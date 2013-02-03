@@ -528,6 +528,9 @@ int method_multiboot(char *args)
 	mbinfo->fb_depth = (fb_get_bpp() << 16) | (0x1);	// TODO: check pixel_order
 	mbinfo->flags |= (1 << 11);
 
+	// Set the device containing the kernel to be the default
+	vfs_set_default(fp->fs->parent->device_name);
+
 	printf("MULTIBOOT: loaded kernel %s\n", file);
 
 	fclose(fp);
