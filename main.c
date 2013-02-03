@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "uart.h"
 #include "atag.h"
 #include "fb.h"
@@ -15,6 +16,13 @@ uint32_t _atags;
 uint32_t _arm_m_type;
 
 char rpi_boot_name[] = "rpi_boot";
+
+static char *boot_cfg_names[] =
+{
+	"/boot/rpi_boot.cfg",
+	"/boot/grub/grub.cfg",
+	0
+};
 
 void atag_cb(struct atag *tag)
 {
@@ -144,8 +152,52 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 		printf("%s ", *devs++);
 	printf("\n");
 
-	// look for a /boot/grub/grub.cfg on the default device
-	FILE *f = fopen("/boot/grub/grub.cfg", "r");
+	// Look for a boot configuration file, starting with the default device,
+	// then iterating through all devices
+	
+	FILE *f = (void*)0;
+	
+	// Default device
+	char **fname = boot_cfg_names;
+	while(*fname)
+	{
+		f = fopen(*fname, "r");
+		if(f)
+			break;
+		fname++;
+	}
+
+	if(!f)
+	{
+		// Try other devices
+		char **dev = vfs_get_device_list();
+		while(*dev)
+		{
+			int dev_len = strlen(*dev);
+			
+			fname = boot_cfg_names;
+			while(*fname)
+			{
+				int fname_len = strlen(*fname);
+				char *new_str = (char *)malloc(dev_len + fname_len + 3);
+				new_str[0] = 0;
+				strcat(new_str, "(");
+				strcat(new_str, *dev);
+				strcat(new_str, ")");
+				strcat(new_str, *fname);
+
+				f = fopen(new_str, "r");
+				free(new_str);
+
+				if(f)
+					break;
+			}
+
+			if(f)
+				break;
+		}
+	}
+
 	if(!f)
 	{
 		printf("No bootloader configuration file found\n");

@@ -101,7 +101,7 @@ static void split_string(char *str, char **method, char **args)
 	*method = empty_string;
 	*args = empty_string;
 	
-	while(p)
+	while(*p)
 	{
 		if(*p == ' ')
 		{
