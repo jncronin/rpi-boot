@@ -85,4 +85,11 @@ int strcmp(const char *s1, const char *s2)
 	return 0;
 }
 
+int raise(int sig)
+{
+    printf("ERROR: signal %i raised.  Halted.\n", sig);
+    while(1);
+    return 0;
+}
+
 
