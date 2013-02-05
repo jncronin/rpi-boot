@@ -505,11 +505,17 @@ static void add_multiboot_modules()
 
 int method_module(char *args)
 {
+	char *file, *name;
+	split_string(args, &file, &name);
+
+	if(!strcmp(name, empty_string))
+		name = file;
+
 	// Load a module
-	FILE *fp = fopen(args, "r");
+	FILE *fp = fopen(name, "r");
 	if(!fp)
 	{
-		printf("MODULE: cannot load file %s\n", args);
+		printf("MODULE: cannot load file %s\n", name);
 		return -1;
 	}
 
@@ -518,7 +524,7 @@ int method_module(char *args)
 	if(!address)
 	{
 		printf("MODULE: unable to allocate a chunk of size %i for %s\n",
-				fp->len, args);
+				fp->len, name);
 		return -1;
 	}
 
@@ -530,13 +536,13 @@ int method_module(char *args)
 	if(bytes_to_read != bytes_read)
 	{
 		printf("MODULE: error loading %s only %i out of %i bytes read\n",
-				args, bytes_read, bytes_to_read);
+				name, bytes_read, bytes_to_read);
 		return -1;
 	}
 
-	module_add(address, address + (uint32_t)bytes_read, args);
+	module_add(address, address + (uint32_t)bytes_read, name);
 
-	printf("MODULE: %s loaded\n", args);
+	printf("MODULE: %s loaded\n", name);
 	return 0;
 }
 
