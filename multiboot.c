@@ -310,69 +310,26 @@ int method_multiboot(char *args)
 		//
 		// Load the ELF header
 
-		Elf32_Ehdr *ehdr = (Elf32_Ehdr *)malloc(sizeof(Elf32_Ehdr));
-		fseek(fp, 0, SEEK_SET);
-		fread(ehdr, 1, sizeof(Elf32_Ehdr), fp);
-
-		// Confirm its an ELF file
-		if((ehdr->e_ident[0] != 0x7f) || (ehdr->e_ident[1] != 'E') ||
-				(ehdr->e_ident[2] != 'L') ||
-				(ehdr->e_ident[3] != 'F'))
-		{
-			printf("MULTIBOOT: %s is not a valid ELF file (e_ident)\n",
-					file);
-			return -1;
-		}
-
-		// Confirm its a 32 bit file
-		if(ehdr->e_ident[EI_CLASS] != ELFCLASS32)
-		{
-			printf("MULTIBOOT: %s does not describe 32 bit objects\n",
-					file);
-			return -1;
-		}
-
-		// Confirm its a little-endian file
-		if(ehdr->e_ident[EI_DATA] != ELFDATA2LSB)
-		{
-			printf("MULTIBOOT: %s does not contain little-endian data\n",
-					file);
-			return -1;
-		}
-
-		// Confirm its an executable file
-		if(ehdr->e_type != ET_EXEC)
-		{
-			printf("MULTIBOOT: %s is not an executable file\n",
-					file);
-			return -1;
-		}
-
-		// Confirm its for the ARM architecture
-		if(ehdr->e_machine != EM_ARM)
-		{
-			printf("MULTIBOOT: %s is not compiled for the ARM architecture\n",
-					file);
-			return -1;
-		}
+		Elf32_Ehdr *ehdr;
+		int retno = elf32_read_ehdr(fp, &ehdr);
+		if(retno != ELF_OK)
+			return retno;
 
 		// Load up the section headers
 		if(!ehdr->e_shoff || !ehdr->e_shnum)
 		{
 			printf("MULTIBOOT: %s does not contain a section table\n",
 					file);
+			free(ehdr);
 			return -1;
 		}
 
-		size_t bytes_to_load = (size_t)(ehdr->e_shentsize * ehdr->e_shnum);
-		fseek(fp, (long)ehdr->e_shoff, SEEK_SET);
-		uint8_t *sh_buf = (uint8_t *)malloc(bytes_to_load);
-		size_t bytes_read = fread(sh_buf, 1, bytes_to_load, fp);
-		if(bytes_read != bytes_to_load)
+		uint8_t *sh_buf;
+		retno = elf32_read_shdrs(fp, ehdr, &sh_buf);
+		if(retno != ELF_OK)
 		{
-			printf("MULTIBOOT: error loading section table of %s - only "
-					"%i bytes loaded\n", file, bytes_read);
-			return -1;
+			free(ehdr);
+			return retno;
 		}
 
 		// Now interpret and load them
@@ -397,12 +354,16 @@ int method_multiboot(char *args)
 				{
 					printf("MULTIBOOT: section %i has no defined "
 							"load address\n", i);
+					free(ehdr);
+					free(sh_buf);
 					return -1;
 				}
 				if(!shdr->sh_size)
 				{
 					printf("MULTIBOOT: section %i has no defined "
 							"size\n", i);
+					free(ehdr);
+					free(sh_buf);
 					return -1;
 				}
 
@@ -412,37 +373,21 @@ int method_multiboot(char *args)
 						"between 0x%08x and 0x%08x for section %i\n",
 						shdr->sh_addr, shdr->sh_addr + shdr->sh_size,
 						i);
+					free(ehdr);
+					free(sh_buf);
 					return -1;
 				}
 
 				// Now load or zero it
-				if(shdr->sh_type == SHT_NOBITS)
-					memset((void*)shdr->sh_addr, 0, shdr->sh_size);
-				else
+				retno = elf32_load_section(fp, shdr);
+				if(retno != ELF_OK)
 				{
-					if(!shdr->sh_offset)
-					{
-						printf("MULTIBOOT: section %i has no defined "
-								"file offset\n", i);
-						return -1;
-					}
-
-					fseek(fp, (long)shdr->sh_offset, SEEK_SET);
-					size_t bytes_to_read = (size_t)shdr->sh_size;
-					size_t bytes_read = fread((void *)shdr->sh_addr,
-							1, bytes_to_read, fp);
-					if(bytes_to_read != bytes_read)
-					{
-						printf("MULTIBOOT: error loading section %i "
-								"of size %i - only %i bytes "
-								"loaded\n", i, bytes_to_read,
-								bytes_read);
-						return -1;
-					}
+					free(ehdr);
+					free(sh_buf);
+					return retno;
 				}
 			}
 		}
-
 
 		for(unsigned int i = 0; i < ehdr->e_shnum; i++)
 		{
@@ -466,33 +411,14 @@ int method_multiboot(char *args)
 						return -1;
 					}
 
-					if(shdr->sh_type == SHT_NOBITS)
-						memset((void*)load_addr, 0, shdr->sh_size);
-					else
-					{
-						if(!shdr->sh_offset)
-						{
-							printf("MULTIBOOT: section %i has no defined "
-									"file offset\n", i);
-							return -1;
-						}
-
-						fseek(fp, (long)shdr->sh_offset, SEEK_SET);
-						size_t bytes_to_read = (size_t)shdr->sh_size;
-						size_t bytes_read = fread((void *)shdr->sh_addr,
-								1, bytes_to_read, fp);
-						if(bytes_to_read != bytes_read)
-						{
-							printf("MULTIBOOT: error loading section %i "
-									"of size %i - only %i bytes "
-									"loaded\n", i, bytes_to_read,
-									bytes_read);
-							return -1;
-						}
-					}
-
-					// Store the address we've loaded to
 					shdr->sh_addr = load_addr;
+					retno = elf32_load_section(fp, shdr);
+					if(retno != ELF_OK)
+					{
+						free(ehdr);
+						free(sh_buf);
+						return retno;
+					}
 				}
 			}
 		}

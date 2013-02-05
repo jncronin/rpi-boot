@@ -145,6 +145,18 @@ typedef struct
 	Elf64_Xword p_align; /* Alignment of segment */
 } Elf64_Phdr;
 
+typedef struct
+{
+	Elf32_Word p_type;
+	Elf32_Off p_offset;
+	Elf32_Addr p_vaddr;
+	Elf32_Addr p_paddr;
+	Elf32_Word p_filesz;
+	Elf32_Word p_memsz;
+	Elf32_Word p_flags;
+	Elf32_Word p_align;
+} Elf32_Phdr;
+
 #define ET_NONE 0
 #define ET_REL 1
 #define ET_EXEC 2
@@ -220,3 +232,22 @@ typedef struct
 #define	DT_NULL				0
 #define DT_STRTAB			5
 #define DT_SYMTAB			6
+
+int elf32_read_ehdr(FILE *fp, Elf32_Ehdr **ehdr);
+int elf32_read_shdrs(FILE *fp, Elf32_Ehdr *ehdr, uint8_t **shdrs);
+int elf32_load_section(FILE *fp, Elf32_Shdr *shdr);
+int elf32_read_phdrs(FILE *fp, Elf32_Ehdr *ehdr, uint8_t **phdrs);
+int elf32_load_segment(FILE *fp, Elf32_Phdr *phdr);
+
+// Error return from the above functions
+#define ELF_OK				0
+#define ELF_NOT_ELF			-1
+#define ELF_NOT_32_BIT			-2
+#define ELF_NOT_LITTLE_ENDIAN		-3
+#define ELF_NOT_EXEC			-4
+#define ELF_NOT_ARM			-5
+#define ELF_FILE_LOAD_ERROR		-6
+#define ELF_NO_OFFSET			-7
+
+
+
