@@ -14,6 +14,9 @@
 static int method_multiboot(char *args);
 static int method_boot(char *args);
 static int method_module(char *args);
+static int method_kernel(char *args);
+static int method_entry_addr(char *args);
+static int method_binary_load_addr(char *args);
 
 static void atag_cb(struct atag *);
 static void atag_cb2(struct atag *);
@@ -25,6 +28,7 @@ uint32_t *mmap_ptr;
 
 struct multiboot_info *mbinfo = (void *)0;
 uint32_t entry_addr = 0;
+uint32_t binary_load_addr = 0;
 
 struct multiboot_method
 {
@@ -45,6 +49,18 @@ static struct multiboot_method methods[] =
 	{
 		.name = "module",
 		.method = method_module
+	},
+	{
+		.name = "kernel",
+		.method = method_kernel
+	},
+	{
+		.name = "entry_addr",
+		.method = method_entry_addr
+	},
+	{
+		.name = "binary_load_addr",
+		.method = method_binary_load_addr
 	}
 };
 
@@ -234,7 +250,7 @@ int method_multiboot(char *args)
 	{
 		// Pass memory information
 
-		// First count the number of memory sections and set mem_lower
+		// First count the number of memory sections and set mem_upper
 		parse_atags(_atags, atag_cb);
 
 		// Allocate the mmap buffer
@@ -576,10 +592,164 @@ int method_boot(char *args)
 		// Do a simple jump
 		printf("BOOT: non-multiboot load\n");
 		
-		void (*e_point)() = (void(*)())entry_addr;
-		e_point();
+		void (*e_point)(uint32_t, uint32_t, uint32_t, uint32_t) = 
+			(void(*)(uint32_t, uint32_t, uint32_t, uint32_t))entry_addr;
+		e_point(0x0, _arm_m_type, _atags, (uint32_t)&funcs);
 	}
 	return 0;
+}
+
+int method_kernel(char *args)
+{
+	char *file, *name;
+	split_string(args, &file, &name);
+	
+	FILE *fp = fopen(file, "r");
+	if(!fp)
+	{
+		printf("KERNEL: unable to load %s\n", file);
+		return -1;
+	}
+
+	// Load up the first 0x30 bytes to determine the kernel type
+	uint8_t *first_bytes = (uint8_t *)malloc(0x30);
+	size_t bytes_to_read = 0x30;
+	size_t bytes_read = fread(first_bytes, 1, bytes_to_read, fp);
+	if(bytes_read <= 0)
+	{
+		free(first_bytes);
+		printf("KERNEL: error reading from %s\n", file);
+		return -1;
+	}
+
+	int kernel_type = 0;	// 0 = flat binary, 1 = ELF, 2 = linux
+	
+	// If the first 4 bytes are the ELF magic number, assume its ELF
+	if((bytes_read >= 4) && (first_bytes[0] == 0x7f) &&
+			(first_bytes[1] == 'E') && (first_bytes[2] == 'L')
+			&& (first_bytes[3] == 'F'))
+		kernel_type = 1;
+	else if((bytes_read >= 0x30) &&
+			(*(uint32_t *)&first_bytes[0x24] == 0x016F2818))
+		kernel_type = 2;
+
+	free(first_bytes);
+
+	// Now load up the appropriate kernel type
+	if(kernel_type == 0)
+	{
+		// Allocate memory for it
+		uint32_t length = (uint32_t)fp->len;
+		if(binary_load_addr)
+		{
+			if(!chunk_get_chunk(binary_load_addr, length))
+			{
+				printf("KERNEL: unable to allocate %i bytes "
+						"at 0x%x for kernel %s.\n",
+						length, binary_load_addr,
+						file);
+				return -1;
+			}
+		}
+		else
+		{
+			binary_load_addr = chunk_get_any_chunk(length);
+			if(!binary_load_addr)
+			{
+				printf("KERNEL: unable to allocate %i bytes "
+						" for kernel %s.\n",
+						length, file);
+				return -1;
+			}
+		}
+
+		// Load it
+		fseek(fp, 0, SEEK_SET);
+		bytes_read = fread((void *)binary_load_addr, 1,
+				(size_t)length, fp);
+		if(bytes_read != (size_t)length)
+		{
+			printf("KERNEL: unable to load kernel %s - only %i "
+					"bytes loaded\n", file, length);
+			return -1;
+		}
+		fclose(fp);
+		return 0;
+	}
+	else if(kernel_type == 1)
+	{
+		// Perform an ELF load
+		Elf32_Ehdr *ehdr;
+		int retno = elf32_read_ehdr(fp, &ehdr);
+		if(retno != ELF_OK)
+		{
+			fclose(fp);
+			return retno;
+		}
+
+		uint8_t *ph_buf;
+		retno = elf32_read_phdrs(fp, ehdr, &ph_buf);
+		if(retno != ELF_OK)
+		{
+			free(ehdr);
+			fclose(fp);
+			return retno;
+		}
+
+		for(int i = 0; i < ehdr->e_phnum; i++)
+		{
+			Elf32_Phdr *phdr =
+				(Elf32_Phdr *)&ph_buf[i * ehdr->e_phentsize];
+
+			if(phdr->p_type != PT_LOAD)
+				continue;
+
+			uint32_t start = (uint32_t)phdr->p_vaddr;
+			uint32_t length = (uint32_t)phdr->p_memsz;
+
+			// Check we can load to this address
+			if(!chunk_get_chunk(start, length))
+			{
+				free(ehdr);
+				free(ph_buf);
+				fclose(fp);
+				return retno;
+			}
+
+			// Load the segment
+			retno = elf32_load_segment(fp, phdr);
+			if(retno != ELF_OK)
+			{
+				free(ehdr);
+				free(ph_buf);
+				fclose(fp);
+				return retno;
+			}
+		}
+
+		entry_addr = ehdr->e_entry;
+	}
+	else if (kernel_type == 2)
+	{
+		printf("KERNEL: Linux kernels not currently supported\n");
+		return -1;
+	}
+
+	return 0;
+}
+
+int method_entry_addr(char *args)
+{
+	(void)args;
+	printf("method_entry_addr not implemented\n");
+	return -1;
+}
+
+int method_binary_load_addr(char *args)
+{
+	(void)args;
+	printf("method_binary_load_addr not implemented\n");
+	return -1;
 }
 
 void atag_cb(struct atag *tag)
@@ -588,11 +758,12 @@ void atag_cb(struct atag *tag)
 	{
 		uint32_t start = tag->u.mem.start;
 		uint32_t size = tag->u.mem.size;
+		uint32_t end = start + size;
 		
 		// mem_upper is number of kiB beyond 1 MiB
-		if(start == 0)
-			mbinfo->mem_upper = (size / 1024) - 1024;
-
+		if((start < 0x100000) && (end > 0x100000))
+			mbinfo->mem_upper = end / 1024;
+			
 		mbinfo->mmap_length += 24;
 	}
 }
