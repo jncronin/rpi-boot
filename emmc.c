@@ -324,12 +324,41 @@ int sd_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t bl
 				SD_CMD_RSPNS_TYPE_48B);
 		while((mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x1) == 0);
 	}
+	else if(cur_state == 5)
+	{
+		// In the data transfer state - cancel the transmission
+		mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0);
+		mmio_write(EMMC_BASE + EMMC_CMDTM, SD_CMD_INDEX(12) |
+					SD_CMD_CRCCHK_EN |
+					SD_CMD_RSPNS_TYPE_48B);
+		while((mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x1) == 0);
+	}
 	else if(cur_state != 4)
 	{
 		// Not in the transfer state - re-initialise
 		int ret = sd_card_init(&dev);
 		if(ret != 0)
 			return ret;
+	}
+
+	// Check again that we're now in the correct mode
+	if(cur_state != 4)
+	{
+		mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0);
+		mmio_write(EMMC_BASE + EMMC_ARG1, edev->card_rca << 16);
+		mmio_write(EMMC_BASE + EMMC_CMDTM, SD_CMD_INDEX(13) |
+				SD_CMD_CRCCHK_EN |
+				SD_CMD_RSPNS_TYPE_48);
+		while((mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x1) == 0);
+		status = mmio_read(EMMC_BASE + EMMC_RESP0);
+		cur_state = (status >> 9) & 0xf;
+
+		if(cur_state != 4)
+		{
+			printf("SD: unable to initialise SD card for "
+					"reading (state %i)\n", cur_state);
+			return -1;
+		}
 	}
 
 #ifdef DEBUG

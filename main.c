@@ -93,6 +93,12 @@ extern int def_stream_putc(int, FILE*);
 
 int cfg_parse(char *buf);
 
+int split_putc(int c)
+{
+	uart_putc(c);
+	return console_putc(c);
+}
+
 void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 {
 	_atags = atags;
@@ -135,7 +141,8 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 	}
 
 	// Switch to the framebuffer for output
-	stdout_putc = console_putc;
+	//stdout_putc = console_putc;
+	stdout_putc = split_putc;
 
 	printf("Welcome to Rpi bootloader\n");
 	printf("ARM system type is %x\n", arm_m_type);
@@ -191,10 +198,14 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 
 				if(f)
 					break;
+
+				fname++;
 			}
 
 			if(f)
 				break;
+
+			dev++;
 		}
 	}
 
@@ -205,7 +216,8 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 	else
 	{	
 		printf("Found bootloader configuration\n");
-		char *buf = (char *)malloc(f->len);
+		char *buf = (char *)malloc(f->len + 1);
+		buf[f->len] = 0;		// null terminate
 		fread(buf, 1, f->len, f);
 		fclose(f);
 		cfg_parse(buf);

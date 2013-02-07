@@ -33,6 +33,8 @@ struct ext2_fs {
 	uint32_t pointers_per_indirect_block_2;
 	uint32_t pointers_per_indirect_block_3;
 
+	int type_flags_used;
+
 	// cache the block group descriptor table
 	struct ext2_bgd *bgdt;
 };
@@ -71,6 +73,18 @@ struct ext2_inode {
 	uint32_t fragment_block_address;
 	uint32_t os_opecific[3];
 } __attribute__ ((packed));
+
+static struct dirent *ext2_read_directory(struct fs *fs, char **name);
+static struct dirent *ext2_read_dir(struct ext2_fs *fs, struct dirent *d);
+static FILE *ext2_fopen(struct fs *fs, struct dirent *path, const char *mode);
+static size_t ext2_fread(struct fs *fs, void *ptr, size_t size, size_t nmemb, FILE *stream);
+static size_t ext2_fread(struct fs *fs, void *ptr, size_t size, size_t nmemb, FILE *stream);
+static size_t ext2_read_from_file(struct ext2_fs *fs, uint32_t inode_idx,
+		uint8_t *buf, size_t byte_count, size_t offset);
+static struct ext2_inode *ext2_read_inode(struct ext2_fs *fs,
+		uint32_t inode_idx);
+
+static char ext2_name[] = "ext2";
 
 static uint32_t get_sector_num(struct ext2_fs *fs, uint32_t block_no)
 {
@@ -193,22 +207,25 @@ static uint32_t get_block_no_from_inode(struct ext2_fs *fs, struct ext2_inode *i
 }
 
 
-//static struct dirent *fat_read_dir(struct fat_fs *fs, struct dirent *d);
-//struct dirent *fat_read_directory(struct fs *fs, char **name);
-//static size_t fat_read_from_file(struct fat_fs *fs, uint32_t starting_cluster, uint8_t *buf,
-//		size_t byte_count, size_t offset);
 
-/*static FILE *ext2_fopen(struct fs *fs, struct dirent *path, const char *mode)
+static FILE *ext2_fopen(struct fs *fs, struct dirent *path, const char *mode)
 {
 	if(fs != path->fs)
 		return (FILE *)0;
+
+	struct ext2_fs *ext2 = (struct ext2_fs *)fs;
 
 	struct vfs_file *ret = (struct vfs_file *)malloc(sizeof(struct vfs_file));
 	memset(ret, 0, sizeof(struct vfs_file));
 	ret->fs = fs;
 	ret->pos = 0;
 	ret->opaque = path->opaque;
-	ret->len = (long)path->byte_size;
+
+	// We have to load the inode to get the length
+	struct ext2_inode *inode = ext2_read_inode(ext2, 
+			(uint32_t)path->opaque);
+	ret->len = (long)inode->size;	// no support for large files
+	free(inode);
 
 	(void)mode;
 	return ret;
@@ -221,7 +238,8 @@ static size_t ext2_fread(struct fs *fs, void *ptr, size_t size, size_t nmemb, FI
 	if(stream->opaque == (void *)0)
 		return -1;
 
-	return ext2_read_from_file((struct fat_fs *)fs, (uint32_t)stream->opaque, (uint8_t *)ptr,
+	return ext2_read_from_file((struct ext2_fs *)fs,
+			(uint32_t)stream->opaque, (uint8_t *)ptr,
 			size * nmemb, (size_t)stream->pos);
 }
 
@@ -230,15 +248,17 @@ static int ext2_fclose(struct fs *fs, FILE *fp)
 	(void)fs;
 	(void)fp;
 	return 0;
-} */
+}
 
-void read_test(struct ext2_fs *fs)
+static struct ext2_inode *ext2_read_inode(struct ext2_fs *fs,
+		uint32_t inode_idx)
 {
-	uint32_t inode_number = 1;
+	// Inode addresses start at 1
+	inode_idx--;
 
 	// First find which block group the inode is in
-	uint32_t block_idx = inode_number / fs->inodes_per_group;
-	uint32_t block_offset = inode_number % fs->inodes_per_group;
+	uint32_t block_idx = inode_idx / fs->inodes_per_group;
+	uint32_t block_offset = inode_idx % fs->inodes_per_group;
 	struct ext2_bgd *b = &fs->bgdt[block_idx];
 
 	// Now find which block in its inode table its in
@@ -248,13 +268,15 @@ void read_test(struct ext2_fs *fs)
 
 	// Now read the appropriate block and extract the inode
 	uint8_t *itable = read_block(fs, b->inode_table_start_block + block_idx);
-	struct ext2_inode *inode = (struct ext2_inode *)&itable[block_offset * fs->inode_size];
+	if(itable == (void*)0)
+		return (void*)0;
 
-	// Now read the first block of the root directory
-	uint32_t root_dir_block_0 = get_block_no_from_inode(fs, inode, 0);
-	uint8_t *rdir = read_block(fs, root_dir_block_0);
-
-	(void)rdir;
+	struct ext2_inode *inode = 
+		(struct ext2_inode *)malloc(sizeof(struct ext2_inode));
+	memcpy(inode, &itable[block_offset * fs->inode_size],
+			sizeof(struct ext2_inode));
+	free(itable);
+	return inode;
 }
 
 int ext2_init(struct block_device *parent, struct fs **fs)
@@ -286,11 +308,13 @@ int ext2_init(struct block_device *parent, struct fs **fs)
 	}
 
 	struct ext2_fs *ret = (struct ext2_fs *)malloc(sizeof(struct ext2_fs));
-	//ret->b.fopen = ext2_fopen;
-	//ret->b.fread = ext2_fread;
-	//ret->b.fclose = ext2_fclose;
-	//ret->b.read_directory = ext2_read_directory;
+	memset(ret, 0, sizeof(struct ext2_fs));
+	ret->b.fopen = ext2_fopen;
+	ret->b.fread = ext2_fread;
+	ret->b.fclose = ext2_fclose;
+	ret->b.read_directory = ext2_read_directory;
 	ret->b.parent = parent;
+	ret->b.fs_name = ext2_name;
 
 	ret->total_inodes = *(uint32_t *)&sb[0];
 	ret->total_blocks = *(uint32_t *)&sb[4];
@@ -304,6 +328,9 @@ int ext2_init(struct block_device *parent, struct fs **fs)
 	{
 		// Read extended superblock
 		ret->inode_size = *(uint16_t *)&sb[88];
+		uint32_t required_flags = *(uint32_t *)&sb[96];
+		if(required_flags & 0x2)
+			ret->type_flags_used = 1;
 	}
 	else
 		ret->inode_size = 128;
@@ -327,7 +354,7 @@ int ext2_init(struct block_device *parent, struct fs **fs)
 	}
 
 	ret->total_groups = i_calc_val;
-	ret->pointers_per_indirect_block = ret->block_size / 32;
+	ret->pointers_per_indirect_block = ret->block_size / 4;
 	ret->pointers_per_indirect_block_2 = ret->pointers_per_indirect_block *
 		ret->pointers_per_indirect_block;
 	ret->pointers_per_indirect_block_3 = ret->pointers_per_indirect_block_2 *
@@ -349,70 +376,12 @@ int ext2_init(struct block_device *parent, struct fs **fs)
 
 	printf("EXT2: found an ext2 filesystem on %s\n", ret->b.parent->device_name);
 
-
-	read_test(ret);
-
-	while(1);
-
 	return 0;
 }
 
-/*uint32_t get_sector(struct fat_fs *fs, uint32_t rel_cluster)
+struct dirent *ext2_read_directory(struct fs *fs, char **name)
 {
-	rel_cluster -= 2;
-	return fs->first_non_root_sector + rel_cluster * fs->sectors_per_cluster;
-}
-
-static uint32_t get_next_fat_entry(struct fat_fs *fs, uint32_t current_cluster)
-{
-	switch(fs->fat_type)
-	{
-		case FAT16:
-			{
-				uint32_t fat_offset = current_cluster << 1; // *2
-				uint32_t fat_sector = fs->first_fat_sector +
-					(fat_offset / fs->bytes_per_sector);
-				uint8_t *buf = (uint8_t *)malloc(512);
-				int br_ret = block_read(fs->b.parent, buf, 512, fat_sector);
-				if(br_ret < 0)
-				{
-					printf("FAT: block_read returned %i\n");
-					return 0x0ffffff7;
-				}
-				uint32_t fat_index = fat_offset % fs->bytes_per_sector;
-				uint32_t next_cluster = (uint32_t)*(uint16_t *)&buf[fat_index];
-				free(buf);
-				if(next_cluster >= 0xfff7)
-					next_cluster |= 0x0fff0000;
-				return next_cluster;
-			}
-
-		case FAT32:
-			{
-				uint32_t fat_offset = current_cluster << 2; // *4
-				uint32_t fat_sector = fs->first_fat_sector +
-					(fat_offset / fs->bytes_per_sector);
-				uint8_t *buf = (uint8_t *)malloc(512);
-				int br_ret = block_read(fs->b.parent, buf, 512, fat_sector);
-				if(br_ret < 0)
-				{
-					printf("FAT: block_read returned %i\n");
-					return 0x0ffffff7;
-				}
-				uint32_t fat_index = fat_offset % fs->bytes_per_sector;
-				uint32_t next_cluster = *(uint32_t *)&buf[fat_index];
-				free(buf);
-				return next_cluster & 0x0fffffff; // FAT32 is actually FAT28
-			}
-		default:
-			printf("FAT: fat type %s not supported\n", fs->b.fs_name);
-			return 0;
-	}
-}
-
-struct dirent *fat_read_directory(struct fs *fs, char **name)
-{
-	struct dirent *cur_dir = fat_read_dir((struct fat_fs *)fs, (void*)0);
+	struct dirent *cur_dir = ext2_read_dir((struct ext2_fs *)fs, (void*)0);
 	while(*name)
 	{
 		// Search the directory entries for one of the requested name
@@ -422,7 +391,7 @@ struct dirent *fat_read_directory(struct fs *fs, char **name)
 			if(!strcmp(*name, cur_dir->name))
 			{
 				found = 1;
-				cur_dir = fat_read_dir((struct fat_fs *)fs, cur_dir);
+				cur_dir = ext2_read_dir((struct ext2_fs *)fs, cur_dir);
 				name++;
 				break;
 			}
@@ -430,57 +399,75 @@ struct dirent *fat_read_directory(struct fs *fs, char **name)
 		}
 		if(!found)
 		{
-			printf("FAT: path part %s not found\n", *name);
+			printf("EXT2: path part %s not found\n", *name);
 			return (void*)0;
 		}
 	}
 	return cur_dir;
 }
 
-static size_t fat_read_from_file(struct fat_fs *fs, uint32_t starting_cluster, uint8_t *buf,
-		size_t byte_count, size_t offset)
+static size_t ext2_read_from_file(struct ext2_fs *fs, uint32_t inode_idx,
+		uint8_t *buf, size_t byte_count, size_t offset)
 {
-	uint32_t cur_cluster = starting_cluster;
-	size_t cluster_size = fs->bytes_per_sector * fs->sectors_per_cluster;
+	struct ext2_inode *inode = ext2_read_inode(fs, inode_idx);
+	if(!inode)
+		return -1;
 
 	size_t location_in_file = 0;
 	int buf_ptr = 0;
-	while(cur_cluster < 0x0ffffff8)
+
+	// Iterate through loading the blocks
+	uint32_t total_blocks = inode->size / fs->block_size;
+	uint32_t block_rem = inode->size % fs->block_size;
+	if(block_rem)
+		total_blocks++;
+
+	uint32_t cur_block_idx = 0;
+
+	while(cur_block_idx < total_blocks)
 	{
-		if((location_in_file + cluster_size) > offset)
+		uint32_t block_no = get_block_no_from_inode(fs, inode,
+				cur_block_idx);
+
+		if((location_in_file + fs->block_size) > offset)
 		{
 			if(location_in_file < (offset + byte_count))
 			{
-				// This cluster contains part of the requested file
+				// This block contains part of the requested
+				// file.
 				// Load it
 				
-				uint32_t sector = get_sector(fs, cur_cluster);
-				uint8_t *read_buf = (uint8_t *)malloc(cluster_size);
-				int rb_ret = block_read(fs->b.parent, read_buf, cluster_size, sector);
+				uint8_t *read_buf = read_block(fs, block_no);
+				if(!read_buf)
+				{
+					free(inode);
+					return -1;
+				}
 
-				if(rb_ret < 0)
-					return rb_ret;
-
-				// Now decide how much of this sector we need to load
+				// Now decide how much of this block we need
+				// to load
 				int len;
 				int c_ptr;
 
 				if(offset >= location_in_file)
 				{
-					// This is the first cluster containing the file
+					// This is the first block containing
+					// the file
+					
 					buf_ptr = 0;
 					c_ptr = offset - location_in_file;
 					len = byte_count;
-					if(len > (int)cluster_size)
-						len = cluster_size;
+					if(len > (int)fs->block_size)
+						len = (int)fs->block_size;
 				}
 				else
 				{
-					// We are starting somewhere within the file
+					// We are starting somewhere within
+					// the file
 					c_ptr = 0;
 					len = byte_count - buf_ptr;
-					if(len > (int)cluster_size)
-						len = cluster_size;
+					if(len > (int)fs->block_size)
+						len = (int)fs->block_size;
 					if(len > (int)(byte_count - buf_ptr))
 						len = byte_count - buf_ptr;
 				}
@@ -493,87 +480,66 @@ static size_t fat_read_from_file(struct fat_fs *fs, uint32_t starting_cluster, u
 			}
 		}
 
-		cur_cluster = get_next_fat_entry(fs, cur_cluster);
-		location_in_file += cluster_size;
+		cur_block_idx++;
+		location_in_file += fs->block_size;
 	}
+
+	free(inode);
 
 	return buf_ptr;
-}*/
+}
 
-/*struct dirent *fat_read_dir(struct fat_fs *fs, struct dirent *d)
+struct dirent *ext2_read_dir(struct ext2_fs *fs, struct dirent *d)
 {
-	int is_root = 0;
-	struct fat_fs *fat = (struct fat_fs *)fs;
+	struct ext2_fs *ext2 = (struct ext2_fs *)fs;
 
-	if(d == (void*)0)
-		is_root = 1;
-
-	uint32_t cur_cluster;
-	uint32_t cur_root_cluster_offset = 0;
-	if(is_root)
-	{
-		switch(fat->fat_type)
-		{
-			case FAT12:
-			case FAT16:
-				cur_cluster = 0;
-				break;
-			case FAT32:
-				printf("FAT32 not yet supported\n");
-				return (void*)0;
-		}
-	}
-	else
-		cur_cluster = (uint32_t)d->opaque;
+	uint32_t inode_idx = 2;	// root
+	if(d != (void*)0)
+		inode_idx = (uint32_t)d->opaque;
 
 	struct dirent *ret = (void *)0;
 	struct dirent *prev = (void *)0;
 
-	do
+	// Load the inode of the directory
+	struct ext2_inode *inode = ext2_read_inode(ext2, inode_idx);
+
+	// Iterate through loading the blocks
+	uint32_t total_blocks = inode->size / ext2->block_size;
+	uint32_t block_rem = inode->size % ext2->block_size;
+	if(block_rem)
+		total_blocks++;
+
+	uint32_t cur_block_idx = 0;
+
+	while(cur_block_idx < total_blocks)
 	{
-		// Read this cluster
-		uint32_t cluster_size = fat->bytes_per_sector * fat->sectors_per_cluster;
-		uint8_t *buf = (uint8_t *)malloc(cluster_size);
+		uint32_t block_no = get_block_no_from_inode(ext2, inode,
+				cur_block_idx);
+		uint8_t *block = read_block(ext2, block_no);
 
-		// Interpret the cluster number to an absolute address
-		uint32_t absolute_cluster = cur_cluster;
-		uint32_t first_data_sector = fat->first_data_sector;
-		if(!is_root)
+		uint32_t total_block_size = ext2->block_size;
+		// If inode->size is not a complete multiple of
+		// ext2->block_size then only read part of the last block
+		if((cur_block_idx == (total_blocks - 1)) && block_rem)
+			total_block_size = block_rem;
+
+		uint32_t ptr = 0;
+
+		while(ptr < total_block_size)
 		{
-			absolute_cluster -= 2;
-			first_data_sector = fat->first_non_root_sector;
-		}
-		
-#ifdef DEBUG
-		printf("FAT: reading cluster %i (sector %i)\n", cur_cluster,
-				absolute_cluster * fat->sectors_per_cluster + first_data_sector);
-#endif
-		int br_ret = block_read(fat->b.parent, buf, cluster_size, 
-				absolute_cluster * fat->sectors_per_cluster + first_data_sector);
+			uint32_t de_inode_idx = *(uint32_t *)&block[ptr];
+			uint16_t de_entry_size = *(uint16_t *)&block[ptr + 4];
+			uint16_t de_name_length = *(uint16_t *)&block[ptr + 6];
+			uint8_t de_type_flags = *(uint8_t *)&block[ptr + 7];
 
-		if(br_ret < 0)
-		{
-			printf("FAT: block_read returned %i\n", br_ret);
-			return (void*)0;
-		}
-
-		int ptr = 0;
-
-		for(uint32_t i = 0; i < cluster_size; i++, ptr += 32)
-		{
-			// Does the entry exist (if the first byte is zero of 0xe5 it doesn't)
-			if((buf[ptr] == 0) || (buf[ptr] == 0xe5))
+			// Does the entry exist?
+			if(!de_inode_idx)
+			{
+				ptr += de_entry_size;
 				continue;
+			}
 
-			// Is it the directories '.' or '..'?
-			if(buf[ptr] == '.')
-				continue;
-
-			// Is it a long filename entry (if so ignore)
-			if(buf[ptr + 11] == 0x0f)
-				continue;
-
-			// Else read it
+			// Read it
 			struct dirent *de = (struct dirent *)malloc(sizeof(struct dirent));
 			memset(de, 0, sizeof(struct dirent));
 			if(ret == (void *)0)
@@ -582,65 +548,57 @@ static size_t fat_read_from_file(struct fat_fs *fs, uint32_t starting_cluster, u
 				prev->next = de;
 			prev = de;
 
-			de->name = (char *)malloc(13);
-			de->fs = &fs->b;
-			// Convert to lowercase on load
-			int d_idx = 0;
-			int in_ext = 0;
-			int has_ext = 0;
-			for(int i = 0; i < 11; i++)
+			// Determine the length of the name part
+			uint32_t name_length = de_name_length;
+			if(ext2->type_flags_used)
+				name_length &= 0xff;
+			
+			// Store the name
+			de->name = (char *)malloc(name_length + 1);
+			memset(de->name, 0, name_length + 1);
+			memcpy(de->name, &block[ptr + 8], name_length);
+			
+			// Don't return special files
+			if(!strcmp(de->name, ".") || !strcmp(de->name, "..") ||
+					!strcmp(de->name, "lost+found"))
 			{
-				char cur_v = (char)buf[ptr + i];
-				if(i == 8)
-				{
-					in_ext = 1;
-					de->name[d_idx++] = '.';
-				}
-				if(cur_v == ' ')
-					continue;
-				if(in_ext)
-					has_ext = 1;
-				if((cur_v >= 'A') && (cur_v <= 'Z'))
-					cur_v = 'a' + cur_v - 'A';
-				de->name[d_idx++] = cur_v;
+				free(de);
+				ptr += de_entry_size;
+				continue;
 			}
-			if(!has_ext)
-				de->name[d_idx - 1] = 0;
-			else
-				de->name[d_idx] = 0;
 
-			if(buf[ptr + 11] & 0x10)
-				de->is_dir = 1;
+			// Determine if its a directory
+			if(ext2->type_flags_used)
+			{
+				if(de_type_flags == 2)
+					de->is_dir = 1;
+			}
+			else
+			{
+				// If directory type flags are not supported
+				// we have to load the inode and do it that
+				// way
+				struct ext2_inode *de_inode =
+					ext2_read_inode(ext2, de_inode_idx);
+				if(de_inode->type_permissions & 0x2000)
+					de->is_dir = 1;
+				free(de_inode);
+			}
+
+			de->fs = &fs->b;
 			de->next = (void *)0;
-			de->byte_size = *(uint32_t *)&buf[ptr + 28];
-			uint32_t opaque = *(uint16_t *)&buf[ptr + 26] | 
-				((uint32_t)(*(uint16_t *)&buf[ptr + 20]) << 16);
 
-			de->opaque = (void*)opaque;
+			de->opaque = (void*)de_inode_idx;
 
-#ifdef DEBUG
-			printf("FAT: read dir entry: %s, size %i, cluster %i\n", 
-					de->name, de->byte_size, opaque);
-#endif
+			ptr += de_entry_size;
 		}
-		free(buf);
+		free(block);
 
-		// Get the next cluster
-		if(is_root)
-		{
-			cur_root_cluster_offset++;
-			if(cur_root_cluster_offset < (fat->root_dir_sectors /
-						fat->sectors_per_cluster))
-				cur_cluster++;
-			else
-				cur_cluster = 0x0ffffff8;
-		}
-		else
-			cur_cluster = get_next_fat_entry(fat, cur_cluster);
-	} while(cur_cluster < 0x0ffffff7);
+		cur_block_idx++;
+	}
+
+	free(inode);
 
 	return ret;
 }
-
-*/
 
