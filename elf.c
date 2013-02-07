@@ -111,16 +111,38 @@ int elf32_load_section(FILE *fp, Elf32_Shdr *shdr)
 
 int elf32_read_phdrs(FILE *fp, Elf32_Ehdr *ehdr, uint8_t **phdrs)
 {
-	(void)fp;
-	(void)ehdr;
-	(void)phdrs;
-	return -1;
+	size_t bytes_to_load = (size_t)(ehdr->e_phentsize * ehdr->e_phnum);
+	fseek(fp, (long)ehdr->e_phoff, SEEK_SET);
+	*phdrs = (uint8_t *)malloc(bytes_to_load);
+	size_t bytes_read = fread(*phdrs, 1, bytes_to_load, fp);
+	if(bytes_read != bytes_to_load)
+	{
+		free(*phdrs);
+		return ELF_FILE_LOAD_ERROR;
+	}
+	return ELF_OK;
 }
 
 int elf32_load_segment(FILE *fp, Elf32_Phdr *phdr)
 {
-	(void)fp;
-	(void)phdr;
-	return -1;
+	uint32_t load_address = phdr->p_vaddr;
+	if(phdr->p_filesz)
+	{
+		// Load the file image
+		fseek(fp, (long)phdr->p_offset, SEEK_SET);
+		size_t bytes_to_load = (size_t)phdr->p_filesz;
+		size_t bytes_read = fread((void*)load_address, 1,
+				bytes_to_load, fp);
+		if(bytes_read != bytes_to_load)
+			return ELF_FILE_LOAD_ERROR;
+		load_address += phdr->p_filesz;
+	}
+	if(phdr->p_memsz - phdr->p_filesz)
+	{
+		// Zero out the rest of the memory image
+		memset((void*)load_address, 0, phdr->p_memsz -
+				phdr->p_filesz);
+	}
+	return ELF_OK;
 }
 

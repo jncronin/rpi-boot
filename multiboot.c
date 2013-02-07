@@ -170,7 +170,14 @@ int cfg_parse(char *buf)
 			if(!strcmp(method, methods[i].name))
 			{
 				found = 1;
-				methods[i].method(args);
+				int retno = methods[i].method(args);
+				if(retno != 0)
+				{
+					printf("cfg_parse: %s failed with "
+							"%i\n", line,
+							retno);
+					return retno;
+				}
 				break;
 			}
 		}
