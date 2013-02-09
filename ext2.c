@@ -498,6 +498,8 @@ static size_t ext2_read_from_file(struct ext2_fs *fs, uint32_t inode_idx,
 					len = byte_count;
 					if(len > (int)fs->block_size)
 						len = (int)fs->block_size;
+					if(len > (int)(fs->block_size - c_ptr))
+						len = fs->block_size - c_ptr;
 				}
 				else
 				{
@@ -507,6 +509,8 @@ static size_t ext2_read_from_file(struct ext2_fs *fs, uint32_t inode_idx,
 					len = byte_count - buf_ptr;
 					if(len > (int)fs->block_size)
 						len = (int)fs->block_size;
+					if(len > (int)(fs->block_size - c_ptr))
+						len = fs->block_size - c_ptr;
 					if(len > (int)(byte_count - buf_ptr))
 						len = byte_count - buf_ptr;
 				}

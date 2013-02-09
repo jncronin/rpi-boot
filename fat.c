@@ -41,6 +41,7 @@ struct fat_fs {
 	uint32_t root_dir_entries;
 	uint32_t root_dir_sectors;
 	uint32_t first_non_root_sector;
+	uint32_t root_dir_cluster;
 };
 
 // FAT32 extended fields
@@ -249,8 +250,7 @@ int fat_init(struct block_device *parent, struct fs **fs)
 				ret->first_fat_sector);
 #endif
 
-
-
+		ret->root_dir_cluster = bs->ext.fat32.root_cluster;
 	}
 	else
 	{	
@@ -281,6 +281,7 @@ int fat_init(struct block_device *parent, struct fs **fs)
 #endif
 
 		ret->first_non_root_sector = ret->first_data_sector + ret->root_dir_sectors;
+		ret->root_dir_cluster = 2;
 	}
 
 	*fs = (struct fs *)ret;
@@ -293,6 +294,11 @@ int fat_init(struct block_device *parent, struct fs **fs)
 
 uint32_t get_sector(struct fat_fs *fs, uint32_t rel_cluster)
 {
+#ifdef DEBUG
+	printf("FAT: get_sector rel_cluster %i, sector %i\n",
+			rel_cluster,
+			fs->first_non_root_sector + (rel_cluster - 2) * fs->sectors_per_cluster);
+#endif
 	rel_cluster -= 2;
 	return fs->first_non_root_sector + rel_cluster * fs->sectors_per_cluster;
 }
@@ -389,6 +395,10 @@ static size_t fat_read_from_file(struct fat_fs *fs, uint32_t starting_cluster, u
 	int buf_ptr = 0;
 	while(cur_cluster < 0x0ffffff8)
 	{
+#ifdef DEBUG
+		printf("FAT: read_from_file: reading cluster %i, cluster_size %i\n", cur_cluster,
+				cluster_size);
+#endif
 		if((location_in_file + cluster_size) > offset)
 		{
 			if(location_in_file < (offset + byte_count))
@@ -415,6 +425,8 @@ static size_t fat_read_from_file(struct fat_fs *fs, uint32_t starting_cluster, u
 					len = byte_count;
 					if(len > (int)cluster_size)
 						len = cluster_size;
+					if(len > (int)(cluster_size - c_ptr))
+						len = cluster_size - c_ptr;
 				}
 				else
 				{
@@ -423,6 +435,8 @@ static size_t fat_read_from_file(struct fat_fs *fs, uint32_t starting_cluster, u
 					len = byte_count - buf_ptr;
 					if(len > (int)cluster_size)
 						len = cluster_size;
+					if(len > (int)(cluster_size - c_ptr))
+						len = cluster_size - c_ptr;
 					if(len > (int)(byte_count - buf_ptr))
 						len = byte_count - buf_ptr;
 				}
@@ -453,18 +467,7 @@ struct dirent *fat_read_dir(struct fat_fs *fs, struct dirent *d)
 	uint32_t cur_cluster;
 	uint32_t cur_root_cluster_offset = 0;
 	if(is_root)
-	{
-		switch(fat->fat_type)
-		{
-			case FAT12:
-			case FAT16:
-				cur_cluster = 0;
-				break;
-			case FAT32:
-				printf("FAT32 not yet supported\n");
-				return (void*)0;
-		}
-	}
+		cur_cluster = fat->root_dir_cluster;
 	else
 		cur_cluster = (uint32_t)d->opaque;
 
@@ -478,13 +481,10 @@ struct dirent *fat_read_dir(struct fat_fs *fs, struct dirent *d)
 		uint8_t *buf = (uint8_t *)malloc(cluster_size);
 
 		/* Interpret the cluster number to an absolute address */
-		uint32_t absolute_cluster = cur_cluster;
+		uint32_t absolute_cluster = cur_cluster - 2;
 		uint32_t first_data_sector = fat->first_data_sector;
 		if(!is_root)
-		{
-			absolute_cluster -= 2;
 			first_data_sector = fat->first_non_root_sector;
-		}
 		
 #ifdef DEBUG
 		printf("FAT: reading cluster %i (sector %i)\n", cur_cluster,
@@ -568,7 +568,7 @@ struct dirent *fat_read_dir(struct fat_fs *fs, struct dirent *d)
 		free(buf);
 
 		// Get the next cluster
-		if(is_root)
+		if(is_root && (fs->fat_type != FAT32))
 		{
 			cur_root_cluster_offset++;
 			if(cur_root_cluster_offset < (fat->root_dir_sectors /
