@@ -52,6 +52,7 @@
 
 #ifdef __ARMEL__
 #include <stddef.h>
+#include "timer.h"
 #ifndef FILE
 #ifdef VFS_H
 #define FILE struct vfs_file
@@ -92,6 +93,9 @@ struct multiboot_arm_functions
     DIR *(*opendir)(const char *name);
     struct dirent *(*readdir)(DIR *dirp);
     int (*closedir)(DIR *dirp);
+
+    // Timer functions
+    int usleep(useconds_t usec);
 };
 
 #endif // __ARMEL__

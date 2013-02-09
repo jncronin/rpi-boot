@@ -12,7 +12,7 @@ Features
 executables with a Multiboot header.  Linux kernels are currently not
 supported (but support is planned for a future version).
 
-* Supports FAT and ext2 filesystems.
+* Supports FAT(16/32) and ext2 filesystems.
 
 * Supports loading additional modules when in Multiboot mode.
 
@@ -67,4 +67,16 @@ r3 will be the address of the multiboot_arm_functions structure as defined in
 MULTIBOOT-ARM.
 
 See the test-kernel directory for an example.
+
+
+Caveats
+-------
+
+rpi-boot occupies the first 1 MiB of memory for itself.  If you wish to make
+use of the multiboot_arm_functions functions you need to preserve this.  If
+not you can overwrite it from within your kernel.  If you do overwrite it,
+you should make sure you have already obtained all the information you need
+from the various Multiboot structures (or copied them elsewhere).
+
+Because of this, rpi-boot will not boot kernels which are linked below 1 MiB.
 

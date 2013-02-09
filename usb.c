@@ -33,6 +33,7 @@
 #include <stdio.h>
 #include "mmio.h"
 #include "usb.h"
+#include "timer.h"
 
 /* According to the Altera documents, the usb controller is set up as a host
  * by the following sequence
@@ -70,8 +71,9 @@ int usb_init()
 
 	// Wait for the port connected bit to be set
 	printf("USB: waiting for port connected bit\n");
-	while((mmio_read(USB_HOST_PORT_CTRL_STATUS) & USB_HPCS_PRTCONNDET)
-			== 0);
+	TIMEOUT_WAIT(mmio_read(USB_HOST_PORT_CTRL_STATUS) & USB_HPCS_PRTCONNDET, 500000);
+	if(!(mmio_read(USB_HOST_PORT_CTRL_STATUS) & USB_HPCS_PRTCONNDET))
+		return -1;
 
 	// Initiate a port reset
 	printf("USB: resetting port\n");
@@ -79,8 +81,8 @@ int usb_init()
 	hprt |= USB_HPCS_PRTRST;
 	mmio_write(USB_HOST_PORT_CTRL_STATUS, hprt);
 
-	// Wait 10 ms - TODO use timer
-	for(int i = 0; i < 1000000; i++);
+	// Wait 10 ms
+	usleep(10000);
 
 	// Clear port reset bit
 	hprt = mmio_read(USB_HOST_PORT_CTRL_STATUS);
@@ -89,8 +91,9 @@ int usb_init()
 
 	// Wait for the port enable disable change bit to be set
 	printf("USB: waiting for port enable disable change bit\n");
-	while((mmio_read(USB_HOST_PORT_CTRL_STATUS) & USB_HPCS_PRTENCHNG)
-			== 0);
+	TIMEOUT_WAIT(mmio_read(USB_HOST_PORT_CTRL_STATUS) & USB_HPCS_PRTENCHNG, 500000);
+	if(!(mmio_read(USB_HOST_PORT_CTRL_STATUS) & USB_HPCS_PRTENCHNG))
+		return -1;
 
 	// Read the port speed
 	printf("USB: reading port speed\n");
@@ -98,7 +101,6 @@ int usb_init()
 		& 0x3;
 
 	printf("USB: port speed %i\n", port_speed);
-	while(1);
 
 	return 0;
 }

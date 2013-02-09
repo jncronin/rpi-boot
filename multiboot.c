@@ -31,6 +31,7 @@
 #include "multiboot.h"
 #include "console.h"
 #include "fb.h"
+#include "timer.h"
 
 static int method_multiboot(char *args);
 static int method_boot(char *args);
@@ -95,7 +96,8 @@ struct multiboot_arm_functions funcs =
 	.fseek = fseek,
 	.opendir = opendir,
 	.readdir = readdir,
-	.closedir = closedir
+	.closedir = closedir,
+	.usleep = usleep
 };
 
 static char *read_line(char **buf)

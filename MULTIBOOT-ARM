@@ -80,6 +80,9 @@ struct multiboot_arm_functions
     DIR *(*opendir)(const char *name);
     struct dirent *(*readdir)(DIR *dirp);
     int (*closedir)(DIR *dirp);
+
+    // Timer functions
+    int usleep(useconds_t usec);
 };
 
 with members defined as per POSIX.  In particular the clear() function clears

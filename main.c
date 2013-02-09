@@ -170,7 +170,7 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 	printf("Welcome to Rpi bootloader\n");
 	printf("ARM system type is %x\n", arm_m_type);
 
-//	usb_init();
+	usb_init();
 	
 	struct block_device *sd_dev;
 
