@@ -10,6 +10,10 @@ char *strcpy(char *dest, const char *src);
 char *strncpy(char *dest, const char *src, size_t n);
 int strcmp(const char *s1, const char *s2);
 char *strcat(char *dest, const char *src);
+int tolower(int c);
+int toupper(int c);
+char *strlwr(char *s);
+char *strupr(char *s);
 
 #endif
 

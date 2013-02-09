@@ -5,6 +5,7 @@
 #include <dirent.h>
 #include "vfs.h"
 #include "fs.h"
+#include "errno.h"
 
 struct ext2_bgd
 {
@@ -211,7 +212,16 @@ static uint32_t get_block_no_from_inode(struct ext2_fs *fs, struct ext2_inode *i
 static FILE *ext2_fopen(struct fs *fs, struct dirent *path, const char *mode)
 {
 	if(fs != path->fs)
+	{
+		errno = EFAULT;
 		return (FILE *)0;
+	}
+
+	if(strcmp(mode, "r"))
+	{
+		errno = EROFS;
+		return (FILE *)0;
+	}
 
 	struct ext2_fs *ext2 = (struct ext2_fs *)fs;
 
@@ -227,7 +237,6 @@ static FILE *ext2_fopen(struct fs *fs, struct dirent *path, const char *mode)
 	ret->len = (long)inode->size;	// no support for large files
 	free(inode);
 
-	(void)mode;
 	return ret;
 }
 
@@ -390,6 +399,12 @@ struct dirent *ext2_read_directory(struct fs *fs, char **name)
 		{
 			if(!strcmp(*name, cur_dir->name))
 			{
+				if(!cur_dir->is_dir)
+				{
+					errno = ENOTDIR;
+					return (void *)0;
+				}
+
 				found = 1;
 				cur_dir = ext2_read_dir((struct ext2_fs *)fs, cur_dir);
 				name++;
@@ -399,7 +414,10 @@ struct dirent *ext2_read_directory(struct fs *fs, char **name)
 		}
 		if(!found)
 		{
+#ifdef DEBUG
 			printf("EXT2: path part %s not found\n", *name);
+#endif
+			errno = ENOENT;
 			return (void*)0;
 		}
 	}

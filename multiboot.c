@@ -167,7 +167,8 @@ int cfg_parse(char *buf)
 		int found = 0;
 		for(int i = 0; i < method_count; i++)
 		{
-			if(!strcmp(method, methods[i].name))
+			char *lwr = strlwr(method);
+			if(!strcmp(lwr, methods[i].name))
 			{
 				found = 1;
 				int retno = methods[i].method(args);
@@ -178,8 +179,10 @@ int cfg_parse(char *buf)
 							retno);
 					return retno;
 				}
+				free(lwr);
 				break;
 			}
+			free(lwr);
 		}
 
 		if(!found)

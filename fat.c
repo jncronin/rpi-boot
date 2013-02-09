@@ -5,6 +5,7 @@
 #include <dirent.h>
 #include "vfs.h"
 #include "fs.h"
+#include "errno.h"
 
 struct fat_fs {
 	struct fs b;
@@ -90,7 +91,16 @@ static const char *fat_names[] = { "FAT12", "FAT16", "FAT32", "VFAT" };
 static FILE *fat_fopen(struct fs *fs, struct dirent *path, const char *mode)
 {
 	if(fs != path->fs)
+	{
+		errno = EFAULT;
 		return (FILE *)0;
+	}
+
+	if(strcmp(mode, "r"))
+	{
+		errno = EROFS;
+		return (FILE *)0;
+	}
 
 	struct vfs_file *ret = (struct vfs_file *)malloc(sizeof(struct vfs_file));
 	memset(ret, 0, sizeof(struct vfs_file));
@@ -324,6 +334,11 @@ struct dirent *fat_read_directory(struct fs *fs, char **name)
 		{
 			if(!strcmp(*name, cur_dir->name))
 			{
+				if(!cur_dir->is_dir)
+				{
+					errno = ENOTDIR;
+					return (void*)0;
+				}
 				found = 1;
 				cur_dir = fat_read_dir((struct fat_fs *)fs, cur_dir);
 				name++;
@@ -333,7 +348,10 @@ struct dirent *fat_read_directory(struct fs *fs, char **name)
 		}
 		if(!found)
 		{
+#ifdef DEBUG
 			printf("FAT: path part %s not found\n", *name);
+#endif
+			errno = ENOENT;
 			return (void*)0;
 		}
 	}

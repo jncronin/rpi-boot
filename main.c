@@ -20,6 +20,7 @@ char rpi_boot_name[] = "rpi_boot";
 static char *boot_cfg_names[] =
 {
 	"/boot/rpi_boot.cfg",
+	"/boot/rpi-boot.cfg",
 	"/boot/grub/grub.cfg",
 	0
 };
@@ -84,6 +85,7 @@ void atag_cb(struct atag *tag)
 void console_test();
 int sd_card_init(struct block_device **dev);
 int read_mbr(struct block_device *, struct block_device ***, int *);
+int usb_init();
 
 extern int (*stdout_putc)(int);
 extern int (*stderr_putc)(int);
@@ -147,6 +149,8 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 	printf("Welcome to Rpi bootloader\n");
 	printf("ARM system type is %x\n", arm_m_type);
 
+//	usb_init();
+	
 	struct block_device *sd_dev;
 
 	if(sd_card_init(&sd_dev) == 0)
