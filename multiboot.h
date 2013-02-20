@@ -95,7 +95,7 @@ struct multiboot_arm_functions
     int (*closedir)(DIR *dirp);
 
     // Timer functions
-    int usleep(useconds_t usec);
+    int (*usleep)(useconds_t usec);
 };
 
 #endif // __ARMEL__
