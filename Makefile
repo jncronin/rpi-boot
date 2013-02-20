@@ -10,6 +10,7 @@ CFLAGS += -std=gnu99
 CFLAGS += -O0
 CFLAGS += -I.
 CFLAGS += -g
+CFLAGS += -DDEBUG
 
 QEMUFLAGS = -cpu arm1176 -m 256 -M raspi -serial stdio -kernel kernel-qemu.img -usb
 SDFLAGS = -sd sd.img
