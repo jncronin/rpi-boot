@@ -43,18 +43,6 @@ stack_top:
 .comm funcs, 4
 
 loader:
-//	ldr	r5, =magic
-//	str	r0, [r5]
-
-//	ldr	r5, =mbd
-//	str	r1, [r5]
-
-//	ldr	r5, =m_type
-//	str	r2, [r5]
-
-//	ldr	r5, =m_type
-//	str	r3, [r5]
-
 	ldr	sp, =stack_top
 
 	ldr	r4, =kmain
