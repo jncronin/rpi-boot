@@ -24,7 +24,8 @@
 
 /* References:
  *
- * PLSS 	- SD Group Physical Layer Simplified Specification
+ * PLSS 	- SD Group Physical Layer Simplified Specification ver 3.00
+ * HCSS		- SD Group Host Controller Simplified Specification ver 3.00
  * 
  * Broadcom BCM2835 Peripherals Guide
  */
@@ -41,6 +42,10 @@ static char driver_name[] = "emmc";
 static char device_name[] = "emmc0";	// We use a single device name as there is only
 					// one card slot in the RPi
 
+static uint32_t hci_ver = 0;
+static uint32_t capabilities_0 = 0;
+static uint32_t capabilities_1 = 0;
+
 struct emmc_block_dev
 {
 	struct block_device bd;
@@ -48,6 +53,8 @@ struct emmc_block_dev
 	uint32_t card_supports_18v;
 	uint32_t card_ocr;
 	uint32_t card_rca;
+	uint32_t last_interrupt;
+	uint32_t last_error;
 };
 
 #define EMMC_BASE		0x20300000
@@ -67,6 +74,8 @@ struct emmc_block_dev
 #define EMMC_IRPT_MASK		0x34
 #define EMMC_IRPT_EN		0x38
 #define EMMC_CONTROL2		0x3C
+#define EMMC_CAPABILITIES_0	0x40
+#define EMMC_CAPABILITIES_1	0x44
 #define EMMC_FORCE_IRPT		0x50
 #define EMMC_BOOT_TIMEOUT	0x70
 #define EMMC_DBG_SEL		0x74
@@ -100,28 +109,70 @@ struct emmc_block_dev
 
 int sd_read(struct block_device *, uint8_t *, size_t buf_size, uint32_t);
 
-static int sd_wait_response(useconds_t usec)
+static void sd_send_command(uint32_t command)
 {
-	int response;
+	// Wait for the CMD inhibit bit to clear
+	while(mmio_read(EMMC_BASE + EMMC_STATUS) & 0x1)
+		usleep(1000);
+
+	// Send the command
+	mmio_write(EMMC_BASE + EMMC_CMDTM, command);
+}
+
+static int sd_wait_response(useconds_t usec, struct emmc_block_dev *dev)
+{
+	int response = 0;
+	uint32_t error = 0;
+
+	if(dev)
+	{
+		dev->last_error = 0;
+		dev->last_interrupt = 0;
+	}
 
 	if(usec == 0)
 	{
-		while((mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x1) == 0);
-		response = 1;
+		while((mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x1) == 0)
+		{
+			error = mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x8000;
+			if(error)
+				break;
+		}
+		if(!error)
+			response = 1;
 	}
 	else
 	{
 		TIMEOUT_WAIT(mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x1, usec);
 		response = mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x1;
-#ifdef DEBUG
+		error = mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x8000;
+#ifdef EMMC_DEBUG
 		if(!response)
 			printf("SD: no command result received, interrupt: %08x\n",
 					mmio_read(EMMC_BASE + EMMC_INTERRUPT));
 #endif
 	}
 
-	// Reset the command done interrupt
-	mmio_write(EMMC_BASE + EMMC_INTERRUPT, 1);
+	if(error)
+	{
+		uint32_t irpt = mmio_read(EMMC_BASE + EMMC_INTERRUPT);
+		if(dev)
+		{
+			dev->last_error = error;
+			dev->last_interrupt = irpt;
+		}
+		printf("SD: received error interrupt: %08x\n", irpt);
+
+		if(irpt & 0x10000)
+		{
+			// Command timeout, dump status register
+			printf("SD: timeout error, status %08x\n",
+					mmio_read(EMMC_BASE + EMMC_STATUS));
+		}
+	}
+
+	// Reset the command done and error interrupt
+	mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0xffff0001);
 
 	return response;
 }
@@ -134,9 +185,16 @@ int sd_card_init(struct block_device **dev)
 	uint32_t sdversion = (ver >> 16) & 0xff;
 	uint32_t slot_status = ver & 0xff;
 	printf("EMMC: vendor %x, sdversion %x, slot_status %x\n", vendor, sdversion, slot_status);
+	hci_ver = sdversion;
+
+	if(hci_ver < 2)
+	{
+		printf("EMMC: only SDHCI versions > 3.0 are supported\n");
+		return -1;
+	}
 
 	// Reset the controller
-#ifdef DEBUG
+#ifdef EMMC_DEBUG
 	printf("EMMC: resetting controller\n");
 #endif
 	uint32_t control1 = mmio_read(EMMC_BASE + EMMC_CONTROL1);
@@ -148,34 +206,21 @@ int sd_card_init(struct block_device **dev)
 		printf("EMMC: controller did not reset properly\n");
 		return -1;
 	}
-#ifdef DEBUG
+#ifdef EMMC_DEBUG
 	printf("EMMC: control0: %08x, control1: %08x\n",
 			mmio_read(EMMC_BASE + EMMC_CONTROL0),
 			mmio_read(EMMC_BASE + EMMC_CONTROL1));
 #endif
 
-	// Set clock rate to something slow
-#ifdef DEBUG
-	printf("EMMC: setting clock rate\n");
-#endif
-	control1 = mmio_read(EMMC_BASE + EMMC_CONTROL1);
-	control1 |= 1;			// enable clock
-	control1 |= (0x80 << 8);	// base clock / 256
-	mmio_write(EMMC_BASE + EMMC_CONTROL1, control1);
-	TIMEOUT_WAIT(mmio_read(EMMC_BASE + EMMC_CONTROL1) & 0x2, 0x1000000);
-	if((mmio_read(EMMC_BASE + EMMC_CONTROL1) & 0x2) == 0)
-	{
-		printf("EMMC: controller's clock did not stabiise within 1 second\n");
-		return -1;
-	}
-#ifdef DEBUG
-	printf("EMMC: control0: %08x, control1: %08x\n",
-			mmio_read(EMMC_BASE + EMMC_CONTROL0),
-			mmio_read(EMMC_BASE + EMMC_CONTROL1));
+	// Read the capabilities registers
+	capabilities_0 = mmio_read(EMMC_BASE + EMMC_CAPABILITIES_0);
+	capabilities_1 = mmio_read(EMMC_BASE + EMMC_CAPABILITIES_1);
+#ifdef EMMC_DEBUG
+	printf("EMMC: capabilities: %08x%08x\n", capabilities_1, capabilities_0);
 #endif
 
 	// Check for a valid card
-#ifdef DEBUG
+#ifdef EMMC_DEBUG
 	printf("EMMC: checking for an inserted card\n");
 #endif
 	uint32_t status_reg = mmio_read(EMMC_BASE + EMMC_STATUS);
@@ -184,9 +229,44 @@ int sd_card_init(struct block_device **dev)
 		printf("EMMC: no card inserted\n");
 		return -1;
 	}
-#ifdef DEBUG
+#ifdef EMMC_DEBUG
 	printf("EMMC: status: %08x\n", status_reg);
 #endif
+
+	// Clear control2
+	mmio_write(EMMC_BASE + EMMC_CONTROL2, 0);
+
+	// Set clock rate to something slow
+#ifdef EMMC_DEBUG
+	printf("EMMC: setting clock rate\n");
+#endif
+	control1 = mmio_read(EMMC_BASE + EMMC_CONTROL1);
+	control1 |= 1;			// enable clock
+	control1 |= 0x20;		// programmable clock mode
+	control1 |= (1 << 8);		// base clock * M/2
+	control1 |= (7 << 16);		// data timeout = TMCLK * 2^10
+	mmio_write(EMMC_BASE + EMMC_CONTROL1, control1);
+	TIMEOUT_WAIT(mmio_read(EMMC_BASE + EMMC_CONTROL1) & 0x2, 0x1000000);
+	if((mmio_read(EMMC_BASE + EMMC_CONTROL1) & 0x2) == 0)
+	{
+		printf("EMMC: controller's clock did not stabilise within 1 second\n");
+		return -1;
+	}
+#ifdef EMMC_DEBUG
+	printf("EMMC: control0: %08x, control1: %08x\n",
+			mmio_read(EMMC_BASE + EMMC_CONTROL0),
+			mmio_read(EMMC_BASE + EMMC_CONTROL1));
+#endif
+
+	// Enable the SD clock
+#ifdef EMMC_DEBUG
+	printf("EMMC: enabling SD clock\n");
+#endif
+	usleep(2000);
+	control1 = mmio_read(EMMC_BASE + EMMC_CONTROL1);
+	control1 |= 4;
+	mmio_write(EMMC_BASE + EMMC_CONTROL1, control1);
+	usleep(2000);
 
 	// Mask off sending interrupts to the ARM
 	mmio_write(EMMC_BASE + EMMC_IRPT_EN, 0);
@@ -195,22 +275,24 @@ int sd_card_init(struct block_device **dev)
 	// Have all interrupts sent to the INTERRUPT register
 	mmio_write(EMMC_BASE + EMMC_IRPT_MASK, 0xffffffff);
 
+	usleep(2000);
+
 	// Send CMD0 to the card (reset to idle state)
 	mmio_write(EMMC_BASE + EMMC_CMDTM, SD_CMD_INDEX(0));
-#ifdef DEBUG
+#ifdef EMMC_DEBUG
 	printf("SD: sent CMD0 ");
 #endif
 
-	if(!sd_wait_response(500000))
+	if(!sd_wait_response(500000, (void*)0))
 	{
-#ifdef DEBUG
+#ifdef EMMC_DEBUG
 		printf("- no response\n");
 #endif
 		printf("EMMC: no SD card detected\n");
 		return -1;
 	}
 
-#ifdef DEBUG
+#ifdef EMMC_DEBUG
 	printf("done\n");
 #endif
 
@@ -221,11 +303,34 @@ int sd_card_init(struct block_device **dev)
 	mmio_write(EMMC_BASE + EMMC_ARG1, 0x000001AA);
 	mmio_write(EMMC_BASE + EMMC_CMDTM, SD_CMD_INDEX(8) | SD_CMD_CRCCHK_EN |
 			SD_CMD_RSPNS_TYPE_48);
-#ifdef DEBUG
+#ifdef EMMC_DEBUG
 	printf("SD: sent CMD8, ");
 #endif
 	// Wait for a response
-	int can_set_voltage = sd_wait_response(500000);
+	int can_set_sdhc = sd_wait_response(500000, (void*)0);
+	uint32_t sdhc_flag = 0;
+	if(can_set_sdhc)
+	{
+		uint32_t cmd8_resp = mmio_read(EMMC_BASE + EMMC_RESP0);
+#ifdef EMMC_DEBUG
+		printf("received response: %08x\n", cmd8_resp);
+#else
+		(void)cmd8_resp;
+#endif
+		// The CMD8 response is R7 (card interface condition) - PLSS 4.9.6
+		// Bits 0-7 should be the check pattern
+		// Bits 8-11 should be the accepted voltage (in this case 1 = 2.7-3.6V)
+		if((cmd8_resp & 0xfff) != 0x1aa)
+		{
+			printf("SD: unusable card, exiting\n");
+			return -1;
+		}
+		sdhc_flag = 0x40000000;
+	}
+#ifdef EMMC_DEBUG
+	else
+		printf("no response received\n");
+#endif
 
 	// Prepare the device structure
 	struct emmc_block_dev *ret;
@@ -240,130 +345,95 @@ int sd_card_init(struct block_device **dev)
 	ret->bd.block_size = 512;
 	ret->bd.read = sd_read;
 
-	if(can_set_voltage)
+	// Check ACMD41
+	while(1)
 	{
-#ifdef DEBUG
-		printf("received response: ");
+		usleep(500000);
+#ifdef EMMC_DEBUG
+		printf("SD: sending ACMD41: CMD55: ");
 #endif
-		uint32_t cmd8_resp = mmio_read(EMMC_BASE + EMMC_RESP0);
-#ifdef DEBUG
-		printf("%x %x %x %x\n", cmd8_resp, mmio_read(EMMC_BASE + EMMC_RESP1),
-				mmio_read(EMMC_BASE + EMMC_RESP2),
-				mmio_read(EMMC_BASE + EMMC_RESP3));
+		mmio_write(EMMC_BASE + EMMC_ARG1, 0);
+		sd_send_command(SD_CMD_INDEX(55) | SD_CMD_CRCCHK_EN | SD_CMD_RSPNS_TYPE_48);
+		if(!sd_wait_response(500000, ret))
+		{
+#ifdef EMMC_DEBUG
+			printf("SD: no CMD55 response, retrying\n");
+#endif
+			if(ret->last_interrupt & 0x10000)
+			{
+				// timeout occured
+				usleep(20000);
+				free(ret);
+				return sd_card_init(dev);
+			}
+
+			continue;
+		}
+#ifdef EMMC_DEBUG
+		printf("done, response %08x, ACMD41: ", mmio_read(EMMC_BASE + EMMC_RESP0));
 #endif
 
-		// The CMD8 response is R7 (card interface condition) - PLSS 4.9.6
-		// Bits 0-7 should be the check pattern
-		// Bits 8-11 should be the accepted voltage (in this case 1 = 2.7-3.6V)
-		if((cmd8_resp & 0xfff) != 0x1aa)
+		usleep(2000);
+
+		// Request SDHC mode if available
+//		mmio_write(EMMC_BASE + EMMC_ARG1, (1 << 30) | (1 << 24) | 0x00FF8000);
+		mmio_write(EMMC_BASE + EMMC_ARG1, 0x00FF8000 | sdhc_flag);
+		sd_send_command(SD_CMD_INDEX(41) | SD_CMD_RSPNS_TYPE_48);
+		usleep(500000);
+
+		// Await the response
+		if(!sd_wait_response(500000, ret))
 		{
-			printf("SD: unusable card, exiting\n");
+			printf("SD: unusable card\n");
 			free(ret);
 			return -1;
 		}
-	
-		// The card is a valid ver2.0 or later SD memory card
-	
-		// Check ACMD41
-		while(1)
+
+#ifdef EMMC_DEBUG
+		printf("done\n");
+#endif
+
+		// Read the response
+		usleep(250000);
+		uint32_t acmd41_resp = mmio_read(EMMC_BASE + EMMC_RESP0);
+#ifdef EMMC_DEBUG
+		printf("SD: ACMD41 response: %08x\n",
+				acmd41_resp);
+#endif
+
+		uint32_t card_ready = (acmd41_resp >> 31) & 0x1;
+		if(!card_ready)
 		{
-			mmio_write(EMMC_BASE + EMMC_CMDTM, SD_CMD_INDEX(55) | SD_CMD_CRCCHK_EN |
-					SD_CMD_RSPNS_TYPE_48);
-
-			// Request SDHC mode, 1.8V voltage
-			mmio_write(EMMC_BASE + EMMC_ARG1, (1 << 30) | (1 << 24));
-			mmio_write(EMMC_BASE + EMMC_CMDTM, SD_CMD_INDEX(41) | SD_CMD_RSPNS_TYPE_136);
-
-			// Await the response
-			if(!sd_wait_response(500000))
-			{
-				printf("SD: unusable card\n");
-				free(ret);
-				return -1;
-			}
-
-			// Read the response
-			uint32_t acmd41_resp = mmio_read(EMMC_BASE + EMMC_RESP0);
-#ifdef DEBUG
-			printf("SD: ACMD41 response: %x %x %x %x\n",
-					acmd41_resp,
-					mmio_read(EMMC_BASE + EMMC_RESP1),
-					mmio_read(EMMC_BASE + EMMC_RESP2),
-					mmio_read(EMMC_BASE + EMMC_RESP3));
-#endif
-
-			uint32_t card_ready = (acmd41_resp >> 31) & 0x1;
-			if(!card_ready)
-			{
-				printf("SD: card not yet ready\n");
-				for(int i = 0; i < 100000; i++);
-				continue;
-			}
-
-			ret->card_supports_sdhc = (acmd41_resp >> 30) & 0x1;
-			ret->card_supports_18v = (acmd41_resp >> 24) & 0x1;
-			ret->card_ocr = (acmd41_resp >> 8) & 0xffff;
-		
-			break;
+			printf("SD: card not yet ready\n");
+			usleep(1000000);
+			continue;
 		}
-	}
-	else
-	{
-#ifdef DEBUG
-		printf("no response received\n");
+
+		ret->card_supports_sdhc = (acmd41_resp >> 30) & 0x1;
+#ifdef EMMC_18V
+		ret->card_supports_18v = (acmd41_resp >> 24) & 0x1;
+#else
+		ret->card_supports_18v = 0;
 #endif
-
-		// Check ACMD41
-		while(1)
-		{
-			mmio_write(EMMC_BASE + EMMC_CMDTM, SD_CMD_INDEX(55) | SD_CMD_CRCCHK_EN |
-					SD_CMD_RSPNS_TYPE_48);
-
-			// Request 1.8V voltage
-			mmio_write(EMMC_BASE + EMMC_ARG1, (1 << 24));
-			mmio_write(EMMC_BASE + EMMC_CMDTM, SD_CMD_INDEX(41) | SD_CMD_RSPNS_TYPE_136);
-
-			// Await the response
-			if(!sd_wait_response(500000))
-			{
-				printf("SD: unusable card\n");
-				free(ret);
-				return -1;
-			}
-
-			// Read the response
-			uint32_t acmd41_resp = mmio_read(EMMC_BASE + EMMC_RESP0);
-#ifdef DEBUG
-			printf("SD: ACMD41 response: %x %x %x %x\n",
-					acmd41_resp,
-					mmio_read(EMMC_BASE + EMMC_RESP1),
-					mmio_read(EMMC_BASE + EMMC_RESP2),
-					mmio_read(EMMC_BASE + EMMC_RESP3));
-#endif
-
-			uint32_t card_ready = (acmd41_resp >> 31) & 0x1;
-			if(!card_ready)
-			{
-				printf("SD: card not yet ready\n");
-				for(int i = 0; i < 100000; i++);
-				continue;
-			}
-
-			ret->card_supports_sdhc = 0;
-			ret->card_supports_18v = (acmd41_resp >> 24) & 0x1;
-			ret->card_ocr = (acmd41_resp >> 8) & 0xffff;
-
-			break;
-		}
+		ret->card_ocr = (acmd41_resp >> 8) & 0xffff;
+	
+		break;
 	}
+
+#ifdef EMMC_DEBUG
+	printf("SD: card identified: OCR: %04x, 1.8v support: %i, SDHC support: %i\n",
+			ret->card_ocr, ret->card_supports_18v, ret->card_supports_sdhc);
+#endif
 
 	// Switch to 1.8V mode if possible
 	if(ret->card_supports_18v)
 	{
+#ifdef EMMC_DEBUG
 		printf("SD: switching to 1.8V mode: ");
+#endif
 
 		mmio_write(EMMC_BASE + EMMC_ARG1, 0);
-		mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0);
+		mmio_write(EMMC_BASE + EMMC_INTERRUPT, 1);
 		mmio_write(EMMC_BASE + EMMC_CMDTM, SD_CMD_INDEX(11) | SD_CMD_CRCCHK_EN |
 				SD_CMD_RSPNS_TYPE_48);
 
@@ -374,15 +444,20 @@ int sd_card_init(struct block_device **dev)
 	}
 
 	// Send CMD2 to get the cards CID
-	mmio_write(EMMC_BASE + EMMC_CMDTM, SD_CMD_INDEX(2) | SD_CMD_CRCCHK_EN |
-			SD_CMD_RSPNS_TYPE_136);
+	sd_send_command(SD_CMD_INDEX(2) | SD_CMD_CRCCHK_EN | SD_CMD_RSPNS_TYPE_136);
+	if(!sd_wait_response(500000, ret))
+	{
+		printf("SD: no CMD2 response\n");
+		free(ret);
+		return -1;
+	}
 	uint32_t card_cid_0 = mmio_read(EMMC_BASE + EMMC_RESP0);
 	uint32_t card_cid_1 = mmio_read(EMMC_BASE + EMMC_RESP1);
 	uint32_t card_cid_2 = mmio_read(EMMC_BASE + EMMC_RESP2);
 	uint32_t card_cid_3 = mmio_read(EMMC_BASE + EMMC_RESP3);
 
-#ifdef DEBUG
-	printf("SD: card CID: %x%x%x%x\n", card_cid_0, card_cid_1, card_cid_2, card_cid_3);
+#ifdef EMMC_DEBUG
+	printf("SD: card CID: %08x%08x%08x%08x\n", card_cid_3, card_cid_2, card_cid_1, card_cid_0);
 #endif
 	uint32_t *dev_id = (uint32_t *)malloc(4 * sizeof(uint32_t));
 	dev_id[0] = card_cid_0;
@@ -393,11 +468,16 @@ int sd_card_init(struct block_device **dev)
 	ret->bd.dev_id_len = 4 * sizeof(uint32_t);
 
 	// Send CMD3 to enter the data state
-	mmio_write(EMMC_BASE + EMMC_CMDTM, SD_CMD_INDEX(3) | SD_CMD_CRCCHK_EN |
-			SD_CMD_RSPNS_TYPE_48);
+	sd_send_command(SD_CMD_INDEX(3) | SD_CMD_CRCCHK_EN | SD_CMD_RSPNS_TYPE_48);
+	if(!sd_wait_response(500000, ret))
+	{
+		printf("SD: no CMD3 response\n");
+		free(ret);
+		return -1;
+	}
 	uint32_t cmd3_resp = mmio_read(EMMC_BASE + EMMC_RESP0);
-#ifdef DEBUG
-	printf("SD: CMD3 response: %x\n", cmd3_resp);
+#ifdef EMMC_DEBUG
+	printf("SD: CMD3 response: %08x\n", cmd3_resp);
 #endif
 
 	ret->card_rca = (cmd3_resp >> 16) & 0xffff;
@@ -439,14 +519,19 @@ int sd_card_init(struct block_device **dev)
 		return -1;
 	}
 
-#ifdef DEBUG
-	printf("SD: RCA: %x\n", ret->card_rca);
+#ifdef EMMC_DEBUG
+	printf("SD: RCA: %04x\n", ret->card_rca);
 #endif
 
 	// Now select the card (toggles it to transfer state)
 	mmio_write(EMMC_BASE + EMMC_ARG1, ret->card_rca << 16);
-	mmio_write(EMMC_BASE + EMMC_CMDTM, SD_CMD_INDEX(7) | SD_CMD_CRCCHK_EN |
-			SD_CMD_RSPNS_TYPE_48B);
+	sd_send_command(SD_CMD_INDEX(7) | SD_CMD_CRCCHK_EN | SD_CMD_RSPNS_TYPE_48B);
+	if(!sd_wait_response(500000, ret))
+	{
+		printf("SD: no CMD7 response\n");
+		free(ret);
+		return -1;
+	}
 	uint32_t cmd7_resp = mmio_read(EMMC_BASE + EMMC_RESP0);
 	status = (cmd7_resp >> 9) & 0xf;
 
@@ -458,10 +543,60 @@ int sd_card_init(struct block_device **dev)
 		return -1;
 	}
 
-	printf("SD: found a valid SD card\n");
-#ifdef DEBUG
-	printf("SD: setup successful (status %x)\n", status);
+	// If not an SDHC card, ensure BLOCKLEN is 512 bytes
+	if(!ret->card_supports_sdhc)
+	{
+		mmio_write(EMMC_BASE + EMMC_ARG1, 512);
+		sd_send_command(SD_CMD_INDEX(16) | SD_CMD_CRCCHK_EN | SD_CMD_RSPNS_TYPE_48);
+		if(!sd_wait_response(500000, ret))
+		{
+			printf("SD: no CMD16 response\n");
+			free(ret);
+			return -1;
+		}
+	}
+	uint32_t controller_block_size = mmio_read(EMMC_BASE + 0x4);
+	controller_block_size &= (~0xfff);
+	controller_block_size |= 0x200;
+	mmio_write(EMMC_BASE + 0x4, controller_block_size);
+
+	// Set 4-bit transfer mode (ACMD6)
+	// All SD cards should support this (PLSS 5.6)
+	// See HCSS 3.4 for the algorithm
+#ifdef EMMC_4_BIT
+	uint32_t irpt_enable = 0xffffffff & (~0x100);
+	mmio_write(EMMC_BASE + EMMC_IRPT_MASK, irpt_enable);
+	mmio_write(EMMC_BASE + EMMC_ARG1, ret->card_rca << 16);
+	sd_send_command(SD_CMD_INDEX(55) | SD_CMD_CRCCHK_EN | SD_CMD_RSPNS_TYPE_48);
+	if(!sd_wait_response(500000, ret))
+	{
+		printf("SD: no CMD55 response\n");
+		free(ret);
+		return -1;
+	}
+	usleep(2000);
+	mmio_write(EMMC_BASE + EMMC_ARG1, 0x2);
+	sd_send_command(SD_CMD_INDEX(6) | SD_CMD_CRCCHK_EN | SD_CMD_RSPNS_TYPE_48);
+	if(!sd_wait_response(500000, ret))
+	{
+		printf("SD: no ACMD6 response\n");
+		free(ret);
+		return -1;
+	}
+	usleep(2000);
+	uint32_t control0 = mmio_read(EMMC_BASE + EMMC_CONTROL0);
+	control0 |= (1 << 1);
+	mmio_write(EMMC_BASE + EMMC_CONTROL0, control0);
+	mmio_write(EMMC_BASE + EMMC_IRPT_MASK, 0xffffffff);
 #endif
+
+	printf("SD: found a valid SD card\n");
+#ifdef EMMC_DEBUG
+	printf("SD: setup successful (status %i)\n", status);
+#endif
+
+	// Reset interrupt register
+	mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0xffffffff);
 
 	*dev = (struct block_device *)ret;
 	return 0;
@@ -479,28 +614,45 @@ int sd_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t bl
 			return ret;
 	}
 
+#ifdef EMMC_DEBUG
+	printf("SD: read() obtaining status register: ");
+#endif
+
 	mmio_write(EMMC_BASE + EMMC_ARG1, edev->card_rca << 16);
-	mmio_write(EMMC_BASE + EMMC_CMDTM, SD_CMD_INDEX(13) | SD_CMD_CRCCHK_EN |
-			SD_CMD_RSPNS_TYPE_48);
+	sd_send_command(SD_CMD_INDEX(13) | SD_CMD_CRCCHK_EN | SD_CMD_RSPNS_TYPE_48);
+	if(!sd_wait_response(500000, edev))
+	{
+		printf("SD: read() no response from CMD13\n");
+		edev->card_rca = 0;
+		return -1;
+	}
 	uint32_t status = mmio_read(EMMC_BASE + EMMC_RESP0);
 	uint32_t cur_state = (status >> 9) & 0xf;
+#ifdef EMMC_DEBUG
+	printf("status %i\n", cur_state);
+#endif
 	if(cur_state == 3)
 	{
 		// Currently in the stand-by state - select it
 		mmio_write(EMMC_BASE + EMMC_ARG1, edev->card_rca << 16);
-		mmio_write(EMMC_BASE + EMMC_INTERRUPT, 1);
-		mmio_write(EMMC_BASE + EMMC_CMDTM, SD_CMD_INDEX(7) | SD_CMD_CRCCHK_EN |
-				SD_CMD_RSPNS_TYPE_48B);
-		while((mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x1) == 0);
+		sd_send_command(SD_CMD_INDEX(7) | SD_CMD_CRCCHK_EN | SD_CMD_RSPNS_TYPE_48B);
+		if(!sd_wait_response(500000, edev))
+		{
+			printf("SD: read() no response from CMD17\n");
+			edev->card_rca = 0;
+			return -1;
+		}
 	}
 	else if(cur_state == 5)
 	{
 		// In the data transfer state - cancel the transmission
-		mmio_write(EMMC_BASE + EMMC_INTERRUPT, 1);
-		mmio_write(EMMC_BASE + EMMC_CMDTM, SD_CMD_INDEX(12) |
-					SD_CMD_CRCCHK_EN |
-					SD_CMD_RSPNS_TYPE_48B);
-		while((mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x1) == 0);
+		sd_send_command(SD_CMD_INDEX(12) | SD_CMD_CRCCHK_EN | SD_CMD_RSPNS_TYPE_48B);
+		if(!sd_wait_response(500000, edev))
+		{
+			printf("SD: read() no response from CMD12\n");
+			edev->card_rca = 0;
+			return -1;
+		}
 	}
 	else if(cur_state != 4)
 	{
@@ -513,81 +665,166 @@ int sd_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t bl
 	// Check again that we're now in the correct mode
 	if(cur_state != 4)
 	{
-		mmio_write(EMMC_BASE + EMMC_INTERRUPT, 1);
+#ifdef EMMC_DEBUG
+		printf("SD: read() rechecking status: ");
+#endif
 		mmio_write(EMMC_BASE + EMMC_ARG1, edev->card_rca << 16);
-		mmio_write(EMMC_BASE + EMMC_CMDTM, SD_CMD_INDEX(13) |
-				SD_CMD_CRCCHK_EN |
-				SD_CMD_RSPNS_TYPE_48);
-		while((mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x1) == 0);
+		sd_send_command(SD_CMD_INDEX(13) | SD_CMD_CRCCHK_EN | SD_CMD_RSPNS_TYPE_48);
+		if(!sd_wait_response(500000, edev))
+		{
+			printf("SD: read() no response from CMD13\n");
+			edev->card_rca = 0;
+			return -1;
+		}
 		status = mmio_read(EMMC_BASE + EMMC_RESP0);
 		cur_state = (status >> 9) & 0xf;
+
+#ifdef EMMC_DEBUG
+		printf("%i\n", cur_state);
+#endif
 
 		if(cur_state != 4)
 		{
 			printf("SD: unable to initialise SD card for "
 					"reading (state %i)\n", cur_state);
+			edev->card_rca = 0;
 			return -1;
 		}
 	}
 
-#ifdef DEBUG
-	printf("SD: read() card ready, reading from block %i\n", block_no);
+#ifdef EMMC_DEBUG
+	printf("SD: read() card ready, reading from block %u\n", block_no);
 #endif
 
 	// PLSS table 4.20 - SDSC cards use byte addresses rather than block addresses
 	if(!edev->card_supports_sdhc)
 		block_no *= 512;
 
+	// This is as per HCSS 3.7.2.1
+	// Note that block size and block count are already set
+
+	// Send the read single block command
 	mmio_write(EMMC_BASE + EMMC_ARG1, block_no);
-	mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0x21);
-	mmio_write(EMMC_BASE + EMMC_CMDTM, SD_CMD_INDEX(17) | SD_CMD_CRCCHK_EN |
-			SD_CMD_RSPNS_TYPE_48);
+	sd_send_command(SD_CMD_INDEX(17) | SD_CMD_CRCCHK_EN | SD_CMD_RSPNS_TYPE_48 |
+			SD_CMD_DAT_DIR_CH | SD_CMD_ISDATA); 
 
 	// Wait for the command to complete
-	while((mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x1) == 0);
-	uint32_t cmd17_resp = mmio_read(EMMC_BASE + EMMC_RESP0);
-	if(cmd17_resp != 0x900)	// STATE = transfer, READY_FOR_DATA = set
+	if(!sd_wait_response(500000, edev))
 	{
-		printf("SD: CMD17 response: %x\n", cmd17_resp);
+		printf("SD: read() no response from CMD17\n");
+		edev->card_rca = 0;
 		return -1;
 	}
 
-#ifdef DEBUG
-	printf("SD: read command complete, waiting for data (current INTERRUPT: %x)\n",
-			mmio_read(EMMC_BASE + EMMC_INTERRUPT));
-#endif
+	// Get response data
+	uint32_t cmd17_resp = mmio_read(EMMC_BASE + EMMC_RESP0);
+	if(cmd17_resp != 0x900)	// STATE = transfer, READY_FOR_DATA = set
+	{
+		printf("SD: error CMD17 response: %x\n", cmd17_resp);
+		return -1;
+	}
 
+#ifdef EMMC_DEBUG
+	printf("SD: read command complete, waiting for data (current INTERRUPT: %08x, "
+			"STATUS: %08x)\n",
+			mmio_read(EMMC_BASE + EMMC_INTERRUPT),
+			mmio_read(EMMC_BASE + EMMC_STATUS));
+#endif
+	
 	// Read data
 	int byte_no = 0;
 	int bytes_to_read = (int)buf_size;
 	if(bytes_to_read > 512)
 		bytes_to_read = 512;		// read a maximum of 512 bytes
+
+	// Wait for buffer read ready interrupt
+#ifdef EMMC_DEBUG
+	printf("SD: awaiting buffer read ready interrupt ");
+	int card_interrupt_displayed = 0;
+	uint32_t old_interrupt = 0;
+#endif
+	while((mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x20) == 0)
+	{
+#ifdef EMMC_DEBUG
+		uint32_t cur_irpt = mmio_read(EMMC_BASE + EMMC_INTERRUPT);
+		if(cur_irpt != old_interrupt)
+		{
+			printf("SD: interrupt %08x\n", cur_irpt);
+			old_interrupt = cur_irpt;
+		}
+		if(cur_irpt & 0x100)
+		{
+			if(!card_interrupt_displayed)
+			{
+				// Get card status (CMD13)
+				mmio_write(EMMC_BASE + EMMC_ARG1, edev->card_rca << 16);
+				sd_send_command(SD_CMD_INDEX(13) | SD_CMD_CRCCHK_EN |
+						SD_CMD_RSPNS_TYPE_48);
+				if(!sd_wait_response(500000, edev))
+				{
+					printf("SD: read() no response from CMD13\n");
+					edev->card_rca = 0;
+					return -1;
+				}
+				
+				uint32_t card_status = mmio_read(EMMC_BASE + EMMC_RESP0);
+				printf("SD: interrupt: %08x, controller status %08x, "
+						"card status %08x\n",
+						cur_irpt,
+						mmio_read(EMMC_BASE + EMMC_STATUS),
+						card_status);
+				card_interrupt_displayed = 1;
+			}
+		}
+#endif
+		usleep(1000);
+	}
+#ifdef EMMC_DEBUG
+	printf("done\n");
+#endif
+	// Clear buffer read ready interrupt
+	mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0x20);
+
+	// Get data
 	while(byte_no < 512)
 	{
-		// Wait for data to become available
-		while((mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x20) == 0);
-
 		uint32_t data = mmio_read(EMMC_BASE + EMMC_DATA);
 		uint8_t d0 = (uint8_t)(data & 0xff);
 		uint8_t d1 = (uint8_t)((data >> 8) & 0xff);
 		uint8_t d2 = (uint8_t)((data >> 16) & 0xff);
 		uint8_t d3 = (uint8_t)((data >> 24) & 0xff);
 
-		buf[byte_no++] = d0;
-		if(byte_no >= bytes_to_read)
-			break;
-		buf[byte_no++] = d1;
-		if(byte_no >= bytes_to_read)
-			break;
-		buf[byte_no++] = d2;
-		if(byte_no >= bytes_to_read)
-			break;
-		buf[byte_no++] = d3;
-		if(byte_no >= bytes_to_read)
-			break;
+		if(byte_no < bytes_to_read)
+			buf[byte_no++] = d0;
+		else
+			byte_no++;
+		if(byte_no < bytes_to_read)
+			buf[byte_no++] = d1;
+		else
+			byte_no++;
+		if(byte_no < bytes_to_read)
+			buf[byte_no++] = d2;
+		else
+			byte_no++;
+		if(byte_no < bytes_to_read)
+			buf[byte_no++] = d3;
+		else
+			byte_no++;
 	}
 
-#ifdef DEBUG
+	// Wait for transfer complete interrupt
+#ifdef EMMC_DEBUG
+	printf("SD: awaiting transfer complete interrupt ");
+#endif
+	while((mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x2) == 0)
+		usleep(1000);
+#ifdef EMMC_DEBUG
+	printf("done\n");
+#endif
+	// Clear transfer complete interrupt
+	mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0x2);
+
+#ifdef EMMC_DEBUG
 	printf("SD: data read successful\n");
 #endif
 

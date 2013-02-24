@@ -27,6 +27,7 @@
 #include "vfs.h"
 #include "fs.h"
 #include "errno.h"
+#include "util.h"
 
 struct fat_fs {
 	struct fs b;
@@ -156,7 +157,7 @@ static int fat_fclose(struct fs *fs, FILE *fp)
 int fat_init(struct block_device *parent, struct fs **fs)
 {
 	// Interpret a FAT file system
-#ifdef DEBUG
+#ifdef FAT_DEBUG
 	printf("FAT: looking for a filesytem on %s\n", parent->device_name);
 #endif
 
@@ -175,7 +176,7 @@ int fat_init(struct block_device *parent, struct fs **fs)
 	}
 
 	// Dump the boot block
-#ifdef DEBUG
+#ifdef FAT_DEBUG
 	int j = 0;
 	for(int i = 0; i < 90; i++)
 	{
@@ -222,7 +223,7 @@ int fat_init(struct block_device *parent, struct fs **fs)
 	ret->sectors_per_cluster = (uint32_t)bs->sectors_per_cluster;
 	ret->bytes_per_sector = (uint32_t)bs->bytes_per_sector;
 
-#ifdef DEBUG
+#ifdef FAT_DEBUG
 	printf("FAT: reading a %s filesystem: total_sectors %i, sectors_per_cluster %i, "
 		       "bytes_per_sector %i\n",
 	       ret->b.fs_name, ret->total_sectors, ret->sectors_per_cluster,
@@ -244,7 +245,7 @@ int fat_init(struct block_device *parent, struct fs **fs)
 		ret->first_non_root_sector = ret->first_data_sector;
 		ret->sectors_per_fat = bs->ext.fat32.table_size_32;
 
-#ifdef DEBUG
+#ifdef FAT_DEBUG
 		printf("FAT: first_data_sector: %i, first_fat_sector: %i\n",
 				ret->first_data_sector,
 				ret->first_fat_sector);
@@ -258,7 +259,7 @@ int fat_init(struct block_device *parent, struct fs **fs)
 
 		strcpy(ret->vol_label, bs->ext.fat16.volume_label);
 		ret->vol_label[11] = 0;
-#ifdef DEBUG
+#ifdef FAT_DEBUG
 		printf("FAT: volume label: %s\n", ret->vol_label);
 #endif
 
@@ -270,7 +271,7 @@ int fat_init(struct block_device *parent, struct fs **fs)
 		ret->root_dir_sectors = (ret->root_dir_entries * 32 + ret->bytes_per_sector - 1) /
 			ret->bytes_per_sector;	// The + bytes_per_sector - 1 rounds up the sector no
 
-#ifdef DEBUG
+#ifdef FAT_DEBUG
 		printf("FAT: first_data_sector: %i, first_fat_sector: %i\n",
 				ret->first_data_sector,
 				ret->first_fat_sector);
@@ -294,7 +295,7 @@ int fat_init(struct block_device *parent, struct fs **fs)
 
 uint32_t get_sector(struct fat_fs *fs, uint32_t rel_cluster)
 {
-#ifdef DEBUG
+#ifdef FAT_DEBUG
 	printf("FAT: get_sector rel_cluster %i, sector %i\n",
 			rel_cluster,
 			fs->first_non_root_sector + (rel_cluster - 2) * fs->sectors_per_cluster);
@@ -375,7 +376,7 @@ struct dirent *fat_read_directory(struct fs *fs, char **name)
 		}
 		if(!found)
 		{
-#ifdef DEBUG
+#ifdef FAT_DEBUG
 			printf("FAT: path part %s not found\n", *name);
 #endif
 			errno = ENOENT;
@@ -395,7 +396,7 @@ static size_t fat_read_from_file(struct fat_fs *fs, uint32_t starting_cluster, u
 	int buf_ptr = 0;
 	while(cur_cluster < 0x0ffffff8)
 	{
-#ifdef DEBUG
+#ifdef FAT_DEBUG
 		printf("FAT: read_from_file: reading cluster %i, cluster_size %i\n", cur_cluster,
 				cluster_size);
 #endif
@@ -486,7 +487,7 @@ struct dirent *fat_read_dir(struct fat_fs *fs, struct dirent *d)
 		if(!is_root)
 			first_data_sector = fat->first_non_root_sector;
 		
-#ifdef DEBUG
+#ifdef FAT_DEBUG
 		printf("FAT: reading cluster %i (sector %i)\n", cur_cluster,
 				absolute_cluster * fat->sectors_per_cluster + first_data_sector);
 #endif
@@ -499,9 +500,7 @@ struct dirent *fat_read_dir(struct fat_fs *fs, struct dirent *d)
 			return (void*)0;
 		}
 
-		int ptr = 0;
-
-		for(uint32_t i = 0; i < cluster_size; i++, ptr += 32)
+		for(uint32_t ptr = 0; ptr < cluster_size; ptr += 32)
 		{
 			// Does the entry exist (if the first byte is zero of 0xe5 it doesn't)
 			if((buf[ptr] == 0) || (buf[ptr] == 0xe5))
@@ -554,15 +553,15 @@ struct dirent *fat_read_dir(struct fat_fs *fs, struct dirent *d)
 			if(buf[ptr + 11] & 0x10)
 				de->is_dir = 1;
 			de->next = (void *)0;
-			de->byte_size = *(uint32_t *)&buf[ptr + 28];
-			uint32_t opaque = *(uint16_t *)&buf[ptr + 26] | 
-				((uint32_t)(*(uint16_t *)&buf[ptr + 20]) << 16);
+			de->byte_size = read_word(buf, ptr + 28);
+			uint32_t opaque = read_halfword(buf, ptr + 26) | 
+				((uint32_t)read_halfword(buf, ptr + 20) << 16);
 
 			de->opaque = (void*)opaque;
 
-#ifdef DEBUG
-			printf("FAT: read dir entry: %s, size %i, cluster %i\n", 
-					de->name, de->byte_size, opaque);
+#ifdef FAT_DEBUG
+			printf("FAT: read dir entry: %s, size %i, cluster %i, ptr %i\n", 
+					de->name, de->byte_size, opaque, ptr);
 #endif
 		}
 		free(buf);

@@ -312,7 +312,7 @@ static struct ext2_inode *ext2_read_inode(struct ext2_fs *fs,
 int ext2_init(struct block_device *parent, struct fs **fs)
 {
 	// Interpret an EXT2 file system
-#ifdef DEBUG
+#ifdef EXT2_DEBUG
 	printf("EXT2: looking for a filesytem on %s\n", parent->device_name);
 #endif
 
@@ -435,7 +435,7 @@ struct dirent *ext2_read_directory(struct fs *fs, char **name)
 		}
 		if(!found)
 		{
-#ifdef DEBUG
+#ifdef EXT2_DEBUG
 			printf("EXT2: path part %s not found\n", *name);
 #endif
 			errno = ENOENT;

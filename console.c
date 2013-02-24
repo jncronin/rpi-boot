@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include "fb.h"
 #include "console.h"
+#include "util.h"
 
 extern uint8_t vgafont8[];
 
@@ -70,7 +71,7 @@ void newline()
 		int height = fb_get_height();
 
 		for(int line = 0; line < (height - CHAR_H); line++)
-			memcpy(&fb[line * pitch], &fb[(line + CHAR_H) * pitch], line_byte_width);
+			quick_memcpy(&fb[line * pitch], &fb[(line + CHAR_H) * pitch], line_byte_width);
 		for(int line = height - CHAR_H; line < height; line++)
 			memset(&fb[line * pitch], 0, line_byte_width);
 

@@ -35,7 +35,7 @@ int block_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t
 		if(to_read > dev->block_size)
 			to_read = dev->block_size;
 
-#ifdef DEBUG
+#ifdef BLOCK_DEBUG
 		printf("block_read: reading %i bytes from block %i on %s\n", to_read,
 				starting_block + block_offset, dev->device_name);
 #endif

@@ -25,6 +25,7 @@
 #include <string.h>
 #include "block.h"
 #include "vfs.h"
+#include "util.h"
 
 int fat_init(struct block_device *, struct fs **);
 int ext2_init(struct block_device *, struct fs **);
@@ -58,7 +59,7 @@ int read_mbr(struct block_device *parent, struct block_device ***partitions, int
 
 	/* Read the first 512 bytes */
 	uint8_t *block_0 = (uint8_t *)malloc(512);
-#ifdef DEBUG
+#ifdef MBR_DEBUG
 	printf("MBR: reading block 0 from device %s\n", parent->device_name);
 #endif
 	
@@ -83,6 +84,18 @@ int read_mbr(struct block_device *parent, struct block_device ***partitions, int
 		return -1;
 	}
 	printf("MBR: found valid MBR on device %s\n", parent->device_name);
+
+#ifdef MBR_DEBUG
+	/* Dump the first sector */
+	printf("MBR: first sector:");
+	for(int dump_idx = 0; dump_idx < 512; dump_idx++)
+	{
+		if((dump_idx & 0xf) == 0)
+			printf("\n%03x: ", dump_idx);
+		printf("%02x ", block_0[dump_idx]);
+	}
+	printf("\n");
+#endif
 
 	/* Load the partitions */
 	struct block_device **parts =
@@ -111,14 +124,16 @@ int read_mbr(struct block_device *parent, struct block_device ***partitions, int
 			d->bd.block_size = 512;
 			d->part_no = i;
 			d->part_id = block_0[p_offset + 4];
-			d->start_block = *(uint32_t *)&block_0[p_offset + 8];
-			d->blocks = *(uint32_t *)&block_0[p_offset + 12];
+			d->start_block = read_word(block_0, p_offset + 8);
+			d->blocks = read_word(block_0, p_offset + 12);
 			d->parent = parent;
 			
 			parts[cur_p++] = (struct block_device *)d;
-#ifdef DEBUG
-			printf("MBR: partition number %i (%s) of type %x\n", 
-					d->part_no, d->bd.device_name, d->part_id);
+#ifdef MBR_DEBUG
+			printf("MBR: partition number %i (%s) of type %x, start sector %u, "
+					"sector count %u, p_offset %03x\n", 
+					d->part_no, d->bd.device_name, d->part_id,
+					d->start_block, d->blocks, p_offset);
 #endif
 
 			switch(d->part_id)
@@ -127,8 +142,8 @@ int read_mbr(struct block_device *parent, struct block_device ***partitions, int
 				case 4:
 				case 6:
 				case 0xb:
+				case 0xc:
 				case 0xe:
-				case 0xf:
 				case 0x11:
 				case 0x14:
 				case 0x1b:
