@@ -22,6 +22,7 @@
 #include <stdint.h>
 #include "mmio.h"
 #include "uart.h"
+#include "timer.h"
 
 #define GPIO_BASE 			0x20200000
 #define GPPUD 				(GPIO_BASE + 0x94)
@@ -46,21 +47,15 @@
 #define UART0_ITOP			(UART0_BASE + 0x88)
 #define UART0_TDR			(UART0_BASE + 0x8C)
 
-// delay function
-static void delay(int32_t count)
-{
-	asm volatile("__delay_%=: subs %[count], %[count], #1; bne __delay_%=\n" : : [count]"r"(count) : "cc");
-}
-
 void uart_init()
 {
 	mmio_write(UART0_CR, 0x0);
 
 	mmio_write(GPPUD, 0x0);
-	delay(150);
+	usleep(150000);
 
 	mmio_write(GPPUDCLK0, (1 << 14) | (1 << 15));
-	delay(150);
+	usleep(150000);
 
 	mmio_write(GPPUDCLK0, 0x0);
 
@@ -79,10 +74,9 @@ void uart_init()
 
 int uart_putc(int byte)
 {
-	while(1) {
-		if (!(mmio_read(UART0_FR) & (1 << 5)))
-			break;
-	}
+	while(mmio_read(UART0_FR) & (1 << 5))
+        usleep(2000);
+
 	mmio_write(UART0_DR, (uint8_t)(byte & 0xff));
 	return byte;
 }
