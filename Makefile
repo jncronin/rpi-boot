@@ -12,6 +12,8 @@ CFLAGS += -I.
 CFLAGS += -g
 CFLAGS += -DDEBUG
 
+ASFLAGS += -Wa,-mcpu=arm1176jzf-s
+
 QEMUFLAGS = -cpu arm1176 -m 256 -M raspi -serial stdio -kernel kernel-qemu.img -usb
 SDFLAGS = -sd sd.img
 
