@@ -23,6 +23,7 @@
 #include "mmio.h"
 #include <errno.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #define TIMER_CLO		0x20003004
 
@@ -30,6 +31,7 @@ int usleep(useconds_t usec)
 {
 	struct timer_wait *tw = register_timer(usec);
 	while(!compare_timer(tw));
+    free(tw);
 	return 0;	
 }
 
