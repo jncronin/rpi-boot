@@ -38,6 +38,10 @@
 #include "block.h"
 #include "timer.h"
 
+#ifdef DEBUG2
+#define EMMC_DEBUG
+#endif
+
 static char driver_name[] = "emmc";
 static char device_name[] = "emmc0";	// We use a single device name as there is only
 					// one card slot in the RPi

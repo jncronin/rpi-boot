@@ -27,6 +27,10 @@
 #include "vfs.h"
 #include "util.h"
 
+#ifdef DEBUG2
+#define MBR_DEBUG
+#endif
+
 int fat_init(struct block_device *, struct fs **);
 int ext2_init(struct block_device *, struct fs **);
 

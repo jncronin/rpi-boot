@@ -29,6 +29,10 @@
 #include "errno.h"
 #include "util.h"
 
+#ifdef DEBUG2
+#define FAT_DEBUG
+#endif
+
 struct fat_fs {
 	struct fs b;
 	int fat_type;

@@ -5,7 +5,7 @@ QEMU ?= qemu-system-arm
 
 all: kernel.img
 
-CFLAGS := -pedantic -pedantic-errors -nostdlib -nostartfiles -ffreestanding -Wall -Wextra -Werror -Wshadow
+CFLAGS += -pedantic -pedantic-errors -nostdlib -nostartfiles -ffreestanding -Wall -Wextra -Werror -Wshadow
 CFLAGS += -std=gnu99
 CFLAGS += -O0
 CFLAGS += -I.

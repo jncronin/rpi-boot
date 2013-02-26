@@ -28,6 +28,10 @@
 #include "fs.h"
 #include "errno.h"
 
+#ifdef DEBUG2
+#define EXT2_DEBUG
+#endif
+
 struct ext2_bgd
 {
 	uint32_t block_bitmap_block_address;
