@@ -77,7 +77,7 @@ quick_memcpy:
 .loopb:
 	ldmia	r5!, {r6-r9}
 	stmia	r4!, {r6-r9}
-	subs	r2, #4
+	subs	r2, #16
 	bhi	.loopb
 
 	pop	{r4-r9}
