@@ -216,7 +216,19 @@ int fat_init(struct block_device *parent, struct fs **fs)
 	ret->b.parent = parent;
 
 	ret->total_sectors = total_sectors;
-	uint32_t total_clusters = total_sectors / bs->sectors_per_cluster;
+
+	ret->root_dir_entries = bs->root_entry_count;
+	ret->root_dir_sectors = (ret->root_dir_entries * 32 + ret->bytes_per_sector - 1) /
+		ret->bytes_per_sector;	// The + bytes_per_sector - 1 rounds up the sector no
+
+    uint32_t fat_size = bs->table_size_16;
+    if(fat_size == 0)
+        fat_size = bs->ext.fat32.table_size_32;
+
+    uint32_t data_sec = total_sectors - bs->reserved_sector_count + bs->table_count * fat_size +
+        ret->root_dir_sectors;
+
+	uint32_t total_clusters = data_sec / bs->sectors_per_cluster;
 	if(total_clusters < 4085)
 		ret->fat_type = FAT12;
 	else if(total_clusters < 65525)
@@ -271,9 +283,6 @@ int fat_init(struct block_device *parent, struct fs **fs)
 				bs->table_size_16);
 		ret->first_fat_sector = bs->reserved_sector_count;
 		ret->sectors_per_fat = bs->table_size_16;
-		ret->root_dir_entries = bs->root_entry_count;
-		ret->root_dir_sectors = (ret->root_dir_entries * 32 + ret->bytes_per_sector - 1) /
-			ret->bytes_per_sector;	// The + bytes_per_sector - 1 rounds up the sector no
 
 #ifdef FAT_DEBUG
 		printf("FAT: first_data_sector: %i, first_fat_sector: %i\n",
