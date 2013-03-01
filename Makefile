@@ -1,6 +1,7 @@
 ARMCC ?= arm-none-eabi-gcc
 ARMLD ?= arm-none-eabi-ld
 ARMOBJCOPY ?= arm-none-eabi-objcopy
+ARMAR ?= arm-none-eabi-ar
 QEMU ?= qemu-system-arm
 
 all: kernel.img
@@ -19,9 +20,14 @@ SDFLAGS = -sd sd.img
 
 OBJS = main.o boot.o uart.o stdio.o stream.o atag.o mbox.o fb.o stdlib.o font.o console.o mmio.o heap.o malloc.o printf.o emmc.o block.o mbr.o fat.o vfs.o multiboot.o memchunk.o ext2.o elf.o usb.o timer.o util.o strtol.o
 
+LIBFS_OBJS = libfs.o emmc.o block.o mbr.o fat.o vfs.o ext2.o
+
 .PHONY: clean
 .PHONY: qemu
 .PHONY: qemu-gdb
+
+libfs.a: $(LIBFS_OBJS)
+	$(ARMAR) rcs $@ $(LIBFS_OBJS)
 
 kernel.elf: $(OBJS) linker.ld
 	$(ARMCC) -nostdlib $(OBJS) -Wl,-T,linker.ld -o $@ -lgcc
