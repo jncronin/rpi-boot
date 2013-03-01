@@ -82,7 +82,7 @@ struct multiboot_arm_functions
     int (*closedir)(DIR *dirp);
 
     // Timer functions
-    int usleep(useconds_t usec);
+    int (*usleep)(useconds_t usec);
 };
 
 with members defined as per POSIX.  In particular the clear() function clears
@@ -114,7 +114,7 @@ drives_addr:
     This is a pointer to a list of pointers to null terminated strings
     containing all the storage device names known to the bootloader.
 
-dives_length:
+drives_length:
     This is the length of the above list.
 
 vbe_control_info, vbe_mode_info, vbe_mode, vbe_interface_seg,
