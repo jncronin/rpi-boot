@@ -27,6 +27,7 @@
 void abort(void);
 void *malloc(size_t size);
 void free(void *ptr);
+long strtol(const char * restrict nptr, char ** restrict endptr, int base);
 
 #endif
 

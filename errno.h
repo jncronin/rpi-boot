@@ -30,6 +30,7 @@ extern int errno;
 #define ENOTDIR		-4
 #define EFAULT		-5
 #define EROFS		-6
+#define ERANGE		-7
 
 #endif
 

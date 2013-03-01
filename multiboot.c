@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <errno.h>
 #include "atag.h"
 #include "elf.h"
 #include "memchunk.h"
@@ -32,6 +33,10 @@
 #include "console.h"
 #include "fb.h"
 #include "timer.h"
+
+#ifdef DEBUG2
+#define MULTIBOOT_DEBUG
+#endif
 
 static int method_multiboot(char *args);
 static int method_boot(char *args);
@@ -173,12 +178,12 @@ int cfg_parse(char *buf)
 	char *b = buf;
 	while((line = read_line(&b)))
 	{
-#ifdef DEBUG
+#ifdef MULTIBOOT_DEBUG
 		printf("read_line: %s\n", line);
 #endif
 		char *method, *args;
 		split_string(line, &method, &args);
-#ifdef DEBUG
+#ifdef MULTIBOOT_DEBUG
 		printf("method: %s, args: %s\n", method, args);
 #endif
 
@@ -217,7 +222,7 @@ int cfg_parse(char *buf)
 
 int method_multiboot(char *args)
 {
-#ifdef DEBUG
+#ifdef MULTIBOOT_DEBUG
 	printf("Interpreting multiboot command\n");
 #endif
 	char *file, *cmd_line;
@@ -230,13 +235,13 @@ int method_multiboot(char *args)
 		printf("MULTIBOOT: cannot load %s\n", file);
 		return -1;
 	}
-#ifdef DEBUG
+#ifdef MULTIBOOT_DEBUG
 	printf("MULTIBOOT: loading first 8kiB of %s\n", file);
 #endif
 	uint32_t *first_8k = (uint32_t *)malloc(8192);
 	int buf_size = fread(first_8k, 1, 8192, fp);
 
-#ifdef DEBUG
+#ifdef MULTIBOOT_DEBUG
 	printf("MULTIBOOT: loaded first %i bytes\n", buf_size);
 #endif
 
@@ -270,7 +275,7 @@ int method_multiboot(char *args)
 		return -1;
 	}
 
-#ifdef DEBUG
+#ifdef MULTIBOOT_DEBUG
 	printf("MULTIBOOT: valid multiboot header, flags: %08x\n", mboot->flags);
 #endif
 
@@ -394,7 +399,7 @@ int method_multiboot(char *args)
 
 			if(shdr->sh_flags & SHF_ALLOC)
 			{
-#ifdef DEBUG
+#ifdef MULTIBOOT_DEBUG
 				printf("MULTIBOOT: section %i is loadable\n", i);
 #endif
 
@@ -444,7 +449,7 @@ int method_multiboot(char *args)
 
 			if(!(shdr->sh_flags & SHF_ALLOC))
 			{
-#ifdef DEBUG
+#ifdef MULTIBOOT_DEBUG
 				printf("MULTIBOOT: section %i is not loadable\n", i);
 #endif
 
@@ -597,7 +602,7 @@ int method_module(char *args)
 
 int method_boot(char *args)
 {
-#ifdef DEBUG
+#ifdef MULTIBOOT_DEBUG
 	printf("Interpreting boot command\n");
 #endif
 	(void)args;
@@ -778,16 +783,42 @@ int method_kernel(char *args)
 
 int method_entry_addr(char *args)
 {
-	(void)args;
-	printf("method_entry_addr not implemented\n");
-	return -1;
+	// strtol requires checking errno for success as the returned value
+	// could be any integer even if successful
+	errno = 0;
+	char *endptr;
+	long val = strtol(args, &endptr, 0);
+	if((errno == 0) && (*args != '\0') && (*endptr == '\0'))
+	{
+		// valid string
+		entry_addr = (uint32_t)val;
+		return 0;
+	}
+	else
+	{
+		printf("ENTRY_ADDR: %s is not a valid address\n", args);
+		return -1;
+	}
 }
 
 int method_binary_load_addr(char *args)
 {
-	(void)args;
-	printf("method_binary_load_addr not implemented\n");
-	return -1;
+	// strtol requires checking errno for success as the returned value
+	// could be any integer even if successful
+	errno = 0;
+	char *endptr;
+	long val = strtol(args, &endptr, 0);
+	if((errno == 0) && (*args != '\0') && (*endptr == '\0'))
+	{
+		// valid string
+		binary_load_addr = (uint32_t)val;
+		return 0;
+	}
+	else
+	{
+		printf("BINARY_LOAD_ADDR: %s is not a valid address\n", args);
+		return -1;
+	}
 }
 
 void atag_cb(struct atag *tag)

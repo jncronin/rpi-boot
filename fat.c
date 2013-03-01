@@ -217,16 +217,17 @@ int fat_init(struct block_device *parent, struct fs **fs)
 
 	ret->total_sectors = total_sectors;
 
+	ret->bytes_per_sector = (uint32_t)bs->bytes_per_sector;
 	ret->root_dir_entries = bs->root_entry_count;
 	ret->root_dir_sectors = (ret->root_dir_entries * 32 + ret->bytes_per_sector - 1) /
 		ret->bytes_per_sector;	// The + bytes_per_sector - 1 rounds up the sector no
 
-    uint32_t fat_size = bs->table_size_16;
-    if(fat_size == 0)
-        fat_size = bs->ext.fat32.table_size_32;
+	uint32_t fat_size = bs->table_size_16;
+	if(fat_size == 0)
+	    fat_size = bs->ext.fat32.table_size_32;
 
-    uint32_t data_sec = total_sectors - bs->reserved_sector_count + bs->table_count * fat_size +
-        ret->root_dir_sectors;
+	uint32_t data_sec = total_sectors - bs->reserved_sector_count + bs->table_count * fat_size +
+	    ret->root_dir_sectors;
 
 	uint32_t total_clusters = data_sec / bs->sectors_per_cluster;
 	if(total_clusters < 4085)
@@ -237,7 +238,6 @@ int fat_init(struct block_device *parent, struct fs **fs)
 		ret->fat_type = FAT32;
 	ret->b.fs_name = fat_names[ret->fat_type];
 	ret->sectors_per_cluster = (uint32_t)bs->sectors_per_cluster;
-	ret->bytes_per_sector = (uint32_t)bs->bytes_per_sector;
 
 #ifdef FAT_DEBUG
 	printf("FAT: reading a %s filesystem: total_sectors %i, sectors_per_cluster %i, "
@@ -488,6 +488,10 @@ struct dirent *fat_read_dir(struct fat_fs *fs, struct dirent *d)
 	struct dirent *ret = (void *)0;
 	struct dirent *prev = (void *)0;
 
+#ifdef FAT_DEBUG
+	printf("FAT: read_dir: starting directory read from cluster %i\n", cur_cluster);
+#endif
+
 	do
 	{
 		/* Read this cluster */
@@ -591,6 +595,10 @@ struct dirent *fat_read_dir(struct fat_fs *fs, struct dirent *d)
 		}
 		else
 			cur_cluster = get_next_fat_entry(fat, cur_cluster);
+
+#ifdef FAT_DEBUG
+		printf("FAT: read dir: next cluster %x\n", cur_cluster);
+#endif
 	} while(cur_cluster < 0x0ffffff7);
 
 	return ret;

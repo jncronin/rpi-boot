@@ -191,11 +191,16 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 	
 	// Default device
 	char **fname = boot_cfg_names;
+	char *found_cfg;
 	while(*fname)
 	{
 		f = fopen(*fname, "r");
 		if(f)
+		{
+			found_cfg = *fname;
 			break;
+		}
+
 		fname++;
 	}
 
@@ -219,11 +224,14 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 				strcat(new_str, *fname);
 
 				f = fopen(new_str, "r");
-				free(new_str);
 
 				if(f)
+				{
+					found_cfg = new_str;					
 					break;
+				}
 
+				free(new_str);
 				fname++;
 			}
 
@@ -236,11 +244,11 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 
 	if(!f)
 	{
-		printf("No bootloader configuration file found\n");
+		printf("MAIN: No bootloader configuration file found\n");
 	}
 	else
 	{	
-		printf("Found bootloader configuration\n");
+		printf("MAIN: Found bootloader configuration: %s\n", found_cfg);
 		char *buf = (char *)malloc(f->len + 1);
 		buf[f->len] = 0;		// null terminate
 		fread(buf, 1, f->len, f);

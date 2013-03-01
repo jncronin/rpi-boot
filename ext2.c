@@ -232,8 +232,6 @@ static uint32_t get_block_no_from_inode(struct ext2_fs *fs, struct ext2_inode *i
 	}
 }
 
-
-
 static FILE *ext2_fopen(struct fs *fs, struct dirent *path, const char *mode)
 {
 	if(fs != path->fs)

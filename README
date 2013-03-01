@@ -51,6 +51,13 @@ kernel <kernel>
 boot
 	- Boot the kernel
 
+binary_load_addr <address>
+	- Set the load address for a flat binary file subsequently loaded by the
+		'kernel' command
+
+entry_addr <address>
+	- Set the entry point that is jumped to by a subsequent 'boot' command
+
 
 System state on kernel start
 ----------------------------
