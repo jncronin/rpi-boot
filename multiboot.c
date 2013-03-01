@@ -707,6 +707,11 @@ int method_kernel(char *args)
 			return -1;
 		}
 		fclose(fp);
+
+        // Set the entry point to the beginning of the file (if not already set)
+        if(!entry_addr)
+            entry_addr = binary_load_addr;
+
 		return 0;
 	}
 	else if(kernel_type == 1)
