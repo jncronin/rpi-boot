@@ -3,7 +3,7 @@ ARM-LD ?= arm-none-eabi-ld
 
 all: test.elf
 
-CFLAGS := -nostdlib -nostartfiles -ffreestanding -g -I..
+CFLAGS := -nostdlib -nostartfiles -ffreestanding -g -I.. -std=c99
 
 OBJS = loader.o main.o
 
