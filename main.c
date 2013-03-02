@@ -30,6 +30,8 @@
 #include "block.h"
 #include "vfs.h"
 #include "memchunk.h"
+#include "usb.h"
+#include "dwc_usb.h"
 
 #define UNUSED(x) (void)(x)
 
@@ -106,7 +108,7 @@ void atag_cb(struct atag *tag)
 void console_test();
 int sd_card_init(struct block_device **dev);
 int read_mbr(struct block_device *, struct block_device ***, int *);
-int usb_init();
+int dwc_usb_init(struct usb_hcd **dev, uint32_t base);
 
 extern int (*stdout_putc)(int);
 extern int (*stderr_putc)(int);
@@ -133,24 +135,6 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 	stderr_putc = uart_putc;
 	stream_putc = def_stream_putc;	
 
-	/* puts("Hello World!");
-	puthex(0xdeadbeef);
-	puts("");
-
-	puts("Boot device:");
-	puthex(boot_dev);
-	puts("");
-
-	puts("Machine type:");
-	puthex(arm_m_type);
-	puts("");
-
-	puts("ATAGS:");
-	puthex(atags);
-	puts("");
-
-	puts(""); */
-
 	// Dump ATAGS
 	parse_atags(atags, atag_cb);
 
@@ -164,13 +148,13 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 	}
 
 	// Switch to the framebuffer for output
-	//stdout_putc = console_putc;
 	stdout_putc = split_putc;
 
 	printf("Welcome to Rpi bootloader\n");
 	printf("ARM system type is %x\n", arm_m_type);
 
-	usb_init();
+	struct usb_hcd *usb_hcd;
+	dwc_usb_init(&usb_hcd, DWC_USB_BASE);
 	
 	struct block_device *sd_dev;
 

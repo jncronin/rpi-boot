@@ -18,7 +18,7 @@ ASFLAGS += -Wa,-mcpu=arm1176jzf-s
 QEMUFLAGS = -cpu arm1176 -m 256 -M raspi -serial stdio -kernel kernel-qemu.img -usb
 SDFLAGS = -sd sd.img
 
-OBJS = main.o boot.o uart.o stdio.o stream.o atag.o mbox.o fb.o stdlib.o font.o console.o mmio.o heap.o malloc.o printf.o emmc.o block.o mbr.o fat.o vfs.o multiboot.o memchunk.o ext2.o elf.o usb.o timer.o util.o strtol.o
+OBJS = main.o boot.o uart.o stdio.o stream.o atag.o mbox.o fb.o stdlib.o font.o console.o mmio.o heap.o malloc.o printf.o emmc.o block.o mbr.o fat.o vfs.o multiboot.o memchunk.o ext2.o elf.o timer.o util.o strtol.o dwc_usb.o
 
 LIBFS_OBJS = libfs.o emmc.o block.o mbr.o fat.o vfs.o ext2.o timer.o util.o mmio.o
 

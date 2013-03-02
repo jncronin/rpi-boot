@@ -19,59 +19,39 @@
  * THE SOFTWARE.
  */
 
+/* This defines the basic usb structures and functions */
+
 #ifndef USB_H
 #define USB_H
 
-#define USB_BASE			0x20980000
-#define USB_OTG_CTRL			(USB_BASE + 0)
-#define USB_OTG_IRPT			(USB_BASE + 4)
-#define USB_AHB_CONF			(USB_BASE + 8)
-#define USB_CORE_CONF			(USB_BASE + 0xC)
-#define USB_CORE_RESET			(USB_BASE + 0x10)
-#define USB_CORE_IRPT			(USB_BASE + 0x14)
-#define USB_CORE_IRPT_MASK		(USB_BASE + 0x18)
-#define USB_RECV_STATUS_DBG		(USB_BASE + 0x1C)
-#define USB_STATUS_READ_POP		(USB_BASE + 0x1C)
-#define USB_DEVICE_STATUS_READ_POP	(USB_BASE + 0x20)
-#define USB_RECV_FIFO_SIZE		(USB_BASE + 0x24)
-#define USB_NON_PERIODIC_FIFO_SIZE	(USB_BASE + 0x28)
-#define USB_BON_PERIODIC_FIFO		(USB_BASE + 0x2C)
-#define USB_I2C_ACCESS			(USB_BASE + 0x30)
-#define USB_PHY_VENDOR_CONTROL		(USB_BASE + 0x34)
-#define USB_GPIO			(USB_BASE + 0x38)
-#define USB_USER_ID			(USB_BASE + 0x3C)
-#define USB_SYNOPSYS_ID			(USB_BASE + 0x40)
+#define USB_REQ_TYPE_CONTROL		0
+#define USB_REQ_TYPE_BULK		1
+#define USB_REQ_TYPE_INTERRUPT		2
+#define USB_REQ_TYPE_ISO		3
 
-#define USB_HOST_CONF			(USB_BASE + 0x400)
-#define USB_HOST_FRAME_INTERVAL		(USB_BASE + 0x404)
-#define USB_HOST_FRAME_NUMBER		(USB_BASE + 0x408)
-#define USB_HOST_PERIODIC_FIFO		(USB_BASE + 0x410)
-#define USB_HOST_ALL_CHAN_IRPT		(USB_BASE + 0x414)
-#define USB_HOST_IPRT_MASK		(USB_BASE + 0x418)
-#define USB_HOST_FRAME_LIST		(USB_BASE + 0x41C)
-#define USB_HOST_PORT_CTRL_STATUS	(USB_BASE + 0x440)
+#define USB_REQ_DIR_HD			0
+#define USB_REQ_DIR_DH			1
 
-#define USB_HOST_CHAN_CHAR		(USB_BASE + 0x500)
-#define USB_HOST_CHAN_SPLIT_CTRL	(USB_BASE + 0x504)
-#define USB_HOST_CHAN_IRPT		(USB_BASE + 0x508)
-#define USB_HOST_CHAN_IRPT_MASK		(USB_BASE + 0x50C)
-#define USB_HOST_CHAN_TFER_SIZE		(USB_BASE + 0x510)
-#define USB_HOST_CHAN_DMA_ADDR		(USB_BASE + 0x514)
+struct usb_hcd;
 
-// USB_HOST_PORT_CTRL_STATUS bits
-#define USB_HPCS_PRTCONNSTS		(1 << 0)
-#define USB_HPCS_PRTCONNDET		(1 << 1)
-#define USB_HPCS_PRTENA			(1 << 2)
-#define USB_HPCS_PRTENCHNG		(1 << 3)
-#define USB_HPCS_PRTOVRCURACT		(1 << 4)
-#define USB_HPCS_PRTOVRCURCHNG		(1 << 5)
-#define USB_HPCS_PRTRES			(1 << 6)
-#define USB_HPCS_PRTSUSP		(1 << 7)
-#define USB_HPCS_PRTRST			(1 << 8)
-#define USB_HPCS_PRTLNSTS		(3 << 10)
-#define USB_HPCS_PRTPWR			(1 << 12)
-#define USB_HPCS_PRTTSTCTL		(15 << 13)
-#define USB_HPCS_PRTSPD			(3 << 17)
+struct usb_request
+{
+	struct usb_hcd 	*hcd;
+	uint32_t	pipe;
+
+	int		type;
+	int		direction;
+};
+
+struct usb_hcd
+{
+	char	*driver_name;
+	char	*device_name;
+
+	int	(*send_req)(struct usb_hcd *, struct usb_request *);
+	int	(*reset)(struct usb_hcd *);
+};
+
 
 #endif
 
