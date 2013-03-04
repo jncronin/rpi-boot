@@ -22,7 +22,9 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#define MAX_BRK 0x100000
+#include "dwc_usb.h"
+
+#define MAX_BRK DWC_USB_FIFO_START
 
 extern char _end;
 

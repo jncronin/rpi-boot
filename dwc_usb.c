@@ -86,7 +86,9 @@ int dwc_usb_init(struct usb_hcd **dev, uint32_t base)
 
 	// Build the device structure
 	int cur_hcd_id = hcd_id++;
-	if(cur_hcd_id >= 10)
+
+	// Limit driver interfaces to 1 currently as we use fixed FIFO addresses
+	if(cur_hcd_id >= 1)
 	{
 		printf("DWC_USB: too many host controllers registered\n");
 		return -1;
@@ -145,15 +147,38 @@ int dwc_usb_init(struct usb_hcd **dev, uint32_t base)
 
 int dwc_usb_post_reset_init(struct dwc_usb_hcd *d)
 {
+#ifdef DWC_USB_DEBUG
+	printf("DWC_USB: beginning post reset init\n");
+#endif
+
 	// Clear all interrupts
 	usleep(2000);
 	mmio_write(d->base + DWC_USB_CORE_IRPT, 0xffffffff);
+
+	// Clear the power register (write StopPClock - csud does this)
+	usleep(2000);
+	mmio_write(d->base + DWC_USB_POWER, 0);
+
+	// Initialize the FIFOs
+	usleep(2000);
+	mmio_write(d->base + DWC_USB_RECV_FIFO_SIZE, DWC_USB_FIFO_SIZE << 16);
+	usleep(2000);
+	mmio_write(d->base + DWC_USB_NON_PERIODIC_FIFO_SIZE,
+			(DWC_USB_FIFO_START & 0xffff) | (DWC_USB_FIFO_SIZE << 16));
+	usleep(2000);
+	mmio_write(d->base + DWC_USB_PERIODIC_FIFO_SIZE,
+			((DWC_USB_FIFO_START + DWC_USB_FIFO_SIZE) & 0xffff) |
+			(DWC_USB_FIFO_SIZE << 16));
 
 	// Power on the host port
 	usleep(2000);
 	uint32_t ctrl_status = mmio_read(d->base + DWC_USB_HOST_PORT_CTRL_STATUS);
 	ctrl_status |= DWC_USB_HPCS_PRTPWR;
 	mmio_write(d->base + DWC_USB_HOST_PORT_CTRL_STATUS, ctrl_status);
+
+#ifdef DWC_USB_DEBUG
+	printf("DWC_USB: completed post reset init\n");
+#endif
 
 	return 0;
 }
