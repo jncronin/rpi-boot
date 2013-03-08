@@ -111,6 +111,35 @@ struct emmc_block_dev
 #define SD_AUTO_CMD_EN_CMD23	(2 << 2)
 #define SD_BLKCNT_EN		(1 << 1)
 
+#define SD_ERR_CMD_TIMEOUT	0
+#define SD_ERR_CMD_CRC		1
+#define SD_ERR_CMD_END_BIT	2
+#define SD_ERR_CMD_INDEX	3
+#define SD_ERR_DATA_TIMEOUT	4
+#define SD_ERR_DATA_CRC		5
+#define SD_ERR_DATA_END_BIT	6
+#define SD_ERR_CURRENT_LIMIT	7
+#define SD_ERR_AUTO_CMD12	8
+#define SD_ERR_ADMA		9
+#define SD_ERR_TUNING		10
+#define SD_ERR_RSVD		11
+
+#define SD_ERR_MASK_CMD_TIMEOUT		(1 << (16 + SD_ERR_CMD_TIMEOUT))
+#define SD_ERR_MASK_CMD_CRC		(1 << (16 + SD_ERR_CMD_CRC))
+#define SD_ERR_MASK_CMD_END_BIT		(1 << (16 + SD_ERR_CMD_END_BIT))
+#define SD_ERR_MASK_CMD_INDEX		(1 << (16 + SD_ERR_CMD_INDEX))
+#define SD_ERR_MASK_DATA_TIMEOUT	(1 << (16 + SD_ERR_CMD_TIMEOUT))
+#define SD_ERR_MASK_DATA_CRC		(1 << (16 + SD_ERR_CMD_CRC))
+#define SD_ERR_MASK_DATA_END_BIT	(1 << (16 + SD_ERR_CMD_END_BIT))
+#define SD_ERR_MASK_CURRENT_LIMIT	(1 << (16 + SD_ERR_CMD_CURRENT_LIMIT))
+#define SD_ERR_MASK_AUTO_CMD12		(1 << (16 + SD_ERR_CMD_AUTO_CMD12))
+#define SD_ERR_MASK_ADMA		(1 << (16 + SD_ERR_CMD_ADMA))
+#define SD_ERR_MASK_TUNING		(1 << (16 + SD_ERR_CMD_TUNING))
+
+static char *err_irpts[] = { "CMD_TIMEOUT", "CMC_CRC", "CMD_END_BIT", "CMD_INDEX",
+	"DATA_TIMEOUT", "DATA_CRC", "DATA_END_BIT", "CURRENT_LIMIT",
+	"AUTO_CMD12", "ADMA", "TUNING", "RSVD" };
+
 int sd_read(struct block_device *, uint8_t *, size_t buf_size, uint32_t);
 
 static void sd_send_command(uint32_t command)
@@ -165,7 +194,13 @@ static int sd_wait_response(useconds_t usec, struct emmc_block_dev *dev)
 			dev->last_error = error;
 			dev->last_interrupt = irpt;
 		}
-		printf("SD: received error interrupt: %08x\n", irpt);
+		printf("SD: received error interrupt: %08x ", irpt);
+		for(int i = 0; i < SD_ERR_RSVD; i++)
+		{
+			if(irpt & (1 << (i + 16)))
+				printf(err_irpts[i]);
+		}
+		printf("\n");
 
 		if(irpt & 0x10000)
 		{
@@ -179,6 +214,48 @@ static int sd_wait_response(useconds_t usec, struct emmc_block_dev *dev)
 	mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0xffff0001);
 
 	return response;
+}
+
+/* Execute a R1 command
+ *
+ * If no error, returns 0 else the value of the interrupt register & 1
+ *
+ * dev - 	emmc structure
+ * cmd - 	command to execute (+ control bits)
+ * arg1 - 	value of ARG1
+ * response - 	if not null, copy response to here
+ * timeout -	how long to wait for a response
+ * tries -	how many times to attempt retry
+ * retry_mask - if the interrupt errors includes this mask then do a retry, else don't
+ * 		we use bit 0 (value 1) to represent a timeout
+ */
+static uint32_t sd_do_r1_cmd(struct emmc_block_dev *dev, uint32_t cmd, uint32_t arg1,
+		uint32_t *response, useconds_t timeout, int tries, uint32_t retry_mask)
+{
+	int cur_try = 0;
+
+	while(cur_try < tries)
+	{
+		mmio_write(EMMC_BASE + EMMC_ARG1, arg1);
+		sd_send_command(cmd);
+
+		int wait_response = sd_wait_response(timeout, dev);
+		uint32_t err_val = dev->last_error;
+		if(wait_response)
+		{
+			if(response != (void *)0)
+				*response = mmio_read(EMMC_BASE + EMMC_RESP0);
+			return 0;
+		}
+		
+		err_val |= 1;
+		if(retry_mask & err_val)
+			tries++;
+		else
+			break;		
+	};
+
+	return dev->last_interrupt & 1;
 }
 
 int sd_card_init(struct block_device **dev)
@@ -708,15 +785,15 @@ int sd_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t bl
 	// Note that block size and block count are already set
 
 	// Send the read single block command
-	mmio_write(EMMC_BASE + EMMC_ARG1, block_no);
-	sd_send_command(SD_CMD_INDEX(17) | SD_CMD_CRCCHK_EN | SD_CMD_RSPNS_TYPE_48 |
-			SD_CMD_DAT_DIR_CH | SD_CMD_ISDATA); 
+	uint32_t cmd_17_resp;
+	uint32_t cmd_17_ctrl = sd_do_r1_cmd(edev, SD_CMD_INDEX(17) | SD_CMD_CRCCHK_EN |
+			SD_CMD_RSPNS_TYPE_48 | SD_CMD_DAT_DIR_CH | SD_CMD_ISDATA,
+			block_no, &cmd_17_resp, 500000, 3, SD_ERR_MASK_CMD_CRC |
+			SD_ERR_MASK_DATA_CRC);
 
-	// Wait for the command to complete
-	if(!sd_wait_response(500000, edev))
+	if(cmd_17_ctrl)
 	{
-		printf("SD: read() no response from CMD17\n");
-		edev->card_rca = 0;
+		printf("SD: error from CMD17 command: %08x\n", cmd_17_ctrl);
 		return -1;
 	}
 
@@ -724,7 +801,7 @@ int sd_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t bl
 	uint32_t cmd17_resp = mmio_read(EMMC_BASE + EMMC_RESP0);
 	if(cmd17_resp != 0x900)	// STATE = transfer, READY_FOR_DATA = set
 	{
-		printf("SD: error CMD17 response: %x\n", cmd17_resp);
+		printf("SD: error invalid CMD17 response: %x\n", cmd17_resp);
 		return -1;
 	}
 
