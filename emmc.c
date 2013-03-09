@@ -820,14 +820,25 @@ int sd_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t bl
 
 	// Wait for buffer read ready interrupt
 #ifdef EMMC_DEBUG
-	printf("SD: awaiting buffer read ready interrupt ");
+	printf("SD: awaiting buffer read ready interrupt: ");
 	int card_interrupt_displayed = 0;
 	uint32_t old_interrupt = 0;
 #endif
+	struct timer_wait *buffer_ready_wait = register_timer(500000);
 	while((mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x20) == 0)
 	{
-#ifdef EMMC_DEBUG
 		uint32_t cur_irpt = mmio_read(EMMC_BASE + EMMC_INTERRUPT);
+
+		if(cur_irpt & SD_ERR_MASK_DATA_CRC)
+		{
+#ifdef EMMC_DEBUG
+			printf("received data CRC error interrupt, retrying\n");
+#endif
+			mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0xffff0001);
+			return -1;
+		}
+
+#ifdef EMMC_DEBUG
 		if(cur_irpt != old_interrupt)
 		{
 			printf("SD: interrupt %08x\n", cur_irpt);
@@ -859,6 +870,14 @@ int sd_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t bl
 		}
 #endif
 		usleep(1000);
+		if(compare_timer(buffer_ready_wait))
+		{
+#ifdef EMMC_DEBUG
+			printf("timeout.  Resetting card.\n");
+			edev->card_rca = 0;
+			return -1;
+#endif
+		}
 	}
 #ifdef EMMC_DEBUG
 	printf("done\n");

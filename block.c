@@ -23,6 +23,8 @@
 #include <stdio.h>
 #include "block.h"
 
+#define MAX_TRIES		3
+
 int block_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t starting_block)
 {
 	// Read the required number of blocks to satisfy the request
@@ -40,9 +42,20 @@ int block_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t
 				starting_block + block_offset, dev->device_name);
 #endif
 
-		int ret = dev->read(dev, &buf[buf_offset], to_read, starting_block + block_offset);
-		if(ret < 0)
-			return ret;
+		int tries = 0;
+		while(1)
+		{
+			int ret = dev->read(dev, &buf[buf_offset], to_read,
+					starting_block + block_offset);
+			if(ret < 0)
+			{
+				tries++;
+				if(tries >= MAX_TRIES)
+					return ret;
+			}
+			else
+				break;
+		}
 
 		buf_offset += (int)to_read;
 		block_offset++;
