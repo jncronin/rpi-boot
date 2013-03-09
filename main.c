@@ -40,6 +40,8 @@ uint32_t _arm_m_type;
 
 char rpi_boot_name[] = "rpi_boot";
 
+static char *atag_cmd_line;
+
 static char *boot_cfg_names[] =
 {
 	"/boot/rpi_boot.cfg",
@@ -53,6 +55,7 @@ void atag_cb(struct atag *tag)
 	switch(tag->hdr.tag)
 	{
 		case ATAG_CORE:
+#ifdef ATAG_DEBUG
 			puts("ATAG_CORE");
 			if(tag->hdr.size == 5)
 			{
@@ -68,9 +71,11 @@ void atag_cb(struct atag *tag)
 				puthex(tag->u.core.rootdev);
 				puts("");
 			}
+#endif
 			break;
 
 		case ATAG_MEM:
+#ifdef ATAG_DEBUG
 			puts("ATAG_MEM");
 			
 			puts("start");
@@ -80,6 +85,7 @@ void atag_cb(struct atag *tag)
 			puts("size");
 			puthex(tag->u.mem.size);
 			puts("");
+#endif
 
 			{
 				uint32_t start = tag->u.mem.start;
@@ -94,6 +100,14 @@ void atag_cb(struct atag *tag)
 			break;
 
 		case ATAG_NONE:
+			break;
+
+		case ATAG_CMDLINE:
+#ifdef ATAG_CMDLINE
+			puts("ATAG_CMDLINE");
+			puts(&tag->u.cmdline.cmdline[0]);
+#endif
+			atag_cmd_line = &tag->u.cmdline.cmdline[0];
 			break;
 
 		default:
@@ -126,6 +140,7 @@ int split_putc(int c)
 
 void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 {
+	atag_cmd_line = (void *)0;
 	_atags = atags;
 	_arm_m_type = arm_m_type;
 	UNUSED(boot_dev);
@@ -152,6 +167,8 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 
 	printf("Welcome to Rpi bootloader\n");
 	printf("ARM system type is %x\n", arm_m_type);
+	if(atag_cmd_line != (void *)0)
+		printf("Command line: %s\n", atag_cmd_line);
 
 	struct usb_hcd *usb_hcd;
 	dwc_usb_init(&usb_hcd, DWC_USB_BASE);

@@ -136,7 +136,7 @@ struct emmc_block_dev
 #define SD_ERR_MASK_ADMA		(1 << (16 + SD_ERR_CMD_ADMA))
 #define SD_ERR_MASK_TUNING		(1 << (16 + SD_ERR_CMD_TUNING))
 
-static char *err_irpts[] = { "CMD_TIMEOUT", "CMC_CRC", "CMD_END_BIT", "CMD_INDEX",
+static char *err_irpts[] = { "CMD_TIMEOUT", "CMD_CRC", "CMD_END_BIT", "CMD_INDEX",
 	"DATA_TIMEOUT", "DATA_CRC", "DATA_END_BIT", "CURRENT_LIMIT",
 	"AUTO_CMD12", "ADMA", "TUNING", "RSVD" };
 
@@ -233,6 +233,9 @@ static uint32_t sd_do_r1_cmd(struct emmc_block_dev *dev, uint32_t cmd, uint32_t 
 		uint32_t *response, useconds_t timeout, int tries, uint32_t retry_mask)
 {
 	int cur_try = 0;
+	
+	// Clear error and cmd done interrupt
+	mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0xffff0001);
 
 	while(cur_try < tries)
 	{
@@ -247,12 +250,29 @@ static uint32_t sd_do_r1_cmd(struct emmc_block_dev *dev, uint32_t cmd, uint32_t 
 				*response = mmio_read(EMMC_BASE + EMMC_RESP0);
 			return 0;
 		}
+
+#ifdef EMMC_DEBUG
+		printf("SD: do_r1_cmd() command failed. ");
+#endif
 		
 		err_val |= 1;
 		if(retry_mask & err_val)
-			tries++;
+		{
+			cur_try++;
+#ifdef EMMC_DEBUG
+			if(cur_try < tries)
+				printf("Retrying\n");
+			else
+				printf("Not retrying - retry count exceeded\n");
+#endif
+		}
 		else
-			break;		
+		{
+#ifdef EMMC_DEBUG
+			printf("Not retrying.\n");
+#endif
+			break;
+		}
 	};
 
 	return dev->last_interrupt & 1;
