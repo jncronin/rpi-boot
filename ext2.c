@@ -255,7 +255,7 @@ static FILE *ext2_fopen(struct fs *fs, struct dirent *path, const char *mode)
 	ret->opaque = path->opaque;
 
 	// We have to load the inode to get the length
-	struct ext2_inode *inode = ext2_read_inode(ext2, 
+	struct ext2_inode *inode = ext2_read_inode(ext2,
 			(uint32_t)path->opaque);
 	ret->len = (long)inode->size;	// no support for large files
 	free(inode);
@@ -303,7 +303,7 @@ static struct ext2_inode *ext2_read_inode(struct ext2_fs *fs,
 	if(itable == (void*)0)
 		return (void*)0;
 
-	struct ext2_inode *inode = 
+	struct ext2_inode *inode =
 		(struct ext2_inode *)malloc(sizeof(struct ext2_inode));
 	memcpy(inode, &itable[block_offset * fs->inode_size],
 			sizeof(struct ext2_inode));
@@ -397,11 +397,14 @@ int ext2_init(struct block_device *parent, struct fs **fs)
 	int bgdt_block = 1;
 	if(ret->block_size == 1024)
 		bgdt_block = 2;
-	block_read(parent, (uint8_t *)ret->bgdt, ret->total_groups * sizeof(struct ext2_bgd),
+
+    uint32_t bgdt_size = ret->total_groups * sizeof(struct ext2_bgd);
+    // round up to a multiple of block_size
+    if(bgdt_size % ret->block_size)
+        bgdt_size = (bgdt_size / ret->block_size + 1) * ret->block_size;
+
+	block_read(parent, (uint8_t *)ret->bgdt, bgdt_size,
 			get_sector_num(ret, bgdt_block));
-
-
-
 
 	*fs = (struct fs *)ret;
 	free(sb);
@@ -477,7 +480,7 @@ static size_t ext2_read_from_file(struct ext2_fs *fs, uint32_t inode_idx,
 				// This block contains part of the requested
 				// file.
 				// Load it
-				
+
 				uint8_t *read_buf = read_block(fs, block_no);
 				if(!read_buf)
 				{
@@ -494,7 +497,7 @@ static size_t ext2_read_from_file(struct ext2_fs *fs, uint32_t inode_idx,
 				{
 					// This is the first block containing
 					// the file
-					
+
 					buf_ptr = 0;
 					c_ptr = offset - location_in_file;
 					len = byte_count;
@@ -597,12 +600,12 @@ struct dirent *ext2_read_dir(struct ext2_fs *fs, struct dirent *d)
 			uint32_t name_length = de_name_length;
 			if(ext2->type_flags_used)
 				name_length &= 0xff;
-			
+
 			// Store the name
 			de->name = (char *)malloc(name_length + 1);
 			memset(de->name, 0, name_length + 1);
 			memcpy(de->name, &block[ptr + 8], name_length);
-			
+
 			// Don't return special files
 			if(!strcmp(de->name, ".") || !strcmp(de->name, "..") ||
 					!strcmp(de->name, "lost+found"))

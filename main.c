@@ -77,11 +77,11 @@ void atag_cb(struct atag *tag)
 		case ATAG_MEM:
 #ifdef ATAG_DEBUG
 			puts("ATAG_MEM");
-			
+
 			puts("start");
 			puthex(tag->u.mem.start);
 			puts("");
-			
+
 			puts("size");
 			puthex(tag->u.mem.size);
 			puts("");
@@ -96,7 +96,7 @@ void atag_cb(struct atag *tag)
 				size -= 0x100000;
 				chunk_register_free(start, size);
 			}
-			
+
 			break;
 
 		case ATAG_NONE:
@@ -148,7 +148,7 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 	// First use the serial console
 	stdout_putc = uart_putc;
 	stderr_putc = uart_putc;
-	stream_putc = def_stream_putc;	
+	stream_putc = def_stream_putc;
 
 	// Dump ATAGS
 	parse_atags(atags, atag_cb);
@@ -166,13 +166,14 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 	stdout_putc = split_putc;
 
 	printf("Welcome to Rpi bootloader\n");
+	printf("Compiled on %s at %s\n", __DATE__, __TIME__);
 	printf("ARM system type is %x\n", arm_m_type);
 	if(atag_cmd_line != (void *)0)
 		printf("Command line: %s\n", atag_cmd_line);
 
 	struct usb_hcd *usb_hcd;
 	dwc_usb_init(&usb_hcd, DWC_USB_BASE);
-	
+
 	struct block_device *sd_dev;
 
 	if(sd_card_init(&sd_dev) == 0)
@@ -187,9 +188,9 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 
 	// Look for a boot configuration file, starting with the default device,
 	// then iterating through all devices
-	
+
 	FILE *f = (void*)0;
-	
+
 	// Default device
 	char **fname = boot_cfg_names;
 	char *found_cfg;
@@ -212,7 +213,7 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 		while(*dev)
 		{
 			int dev_len = strlen(*dev);
-			
+
 			fname = boot_cfg_names;
 			while(*fname)
 			{
@@ -228,7 +229,7 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 
 				if(f)
 				{
-					found_cfg = new_str;					
+					found_cfg = new_str;
 					break;
 				}
 
@@ -248,7 +249,7 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 		printf("MAIN: No bootloader configuration file found\n");
 	}
 	else
-	{	
+	{
 		printf("MAIN: Found bootloader configuration: %s\n", found_cfg);
 		char *buf = (char *)malloc(f->len + 1);
 		buf[f->len] = 0;		// null terminate

@@ -26,7 +26,7 @@
  *
  * PLSS 	- SD Group Physical Layer Simplified Specification ver 3.00
  * HCSS		- SD Group Host Controller Simplified Specification ver 3.00
- * 
+ *
  * Broadcom BCM2835 Peripherals Guide
  */
 
@@ -59,6 +59,18 @@ struct emmc_block_dev
 	uint32_t card_rca;
 	uint32_t last_interrupt;
 	uint32_t last_error;
+
+    uint32_t last_cmd_reg;
+    uint32_t last_cmd;
+	uint32_t last_cmd_success;
+	uint32_t last_r0;
+	uint32_t last_r1;
+	uint32_t last_r2;
+	uint32_t last_r3;
+
+	void *buf;
+	int blocks_to_transfer;
+	size_t block_size;
 };
 
 #define EMMC_BASE		0x20300000
@@ -96,6 +108,7 @@ struct emmc_block_dev
 #define SD_CMD_TYPE_SUSPEND	(1 << 22)
 #define SD_CMD_TYPE_RESUME	(2 << 22)
 #define SD_CMD_TYPE_ABORT	(3 << 22)
+#define SD_CMD_TYPE_MASK    (3 << 22)
 #define SD_CMD_ISDATA		(1 << 21)
 #define SD_CMD_IXCHK_EN		(1 << 20)
 #define SD_CMD_CRCCHK_EN	(1 << 19)
@@ -103,6 +116,7 @@ struct emmc_block_dev
 #define SD_CMD_RSPNS_TYPE_136	(1 << 16)		// For response R2 (with CRC), R3,4 (no CRC)
 #define SD_CMD_RSPNS_TYPE_48	(2 << 16)		// For responses R1, R5, R6, R7 (with CRC)
 #define SD_CMD_RSPNS_TYPE_48B	(3 << 16)		// For responses R1b, R5b (with CRC)
+#define SD_CMD_RSPNS_TYPE_MASK  (3 << 16)
 #define SD_CMD_MULTI_BLOCK	(1 << 5)
 #define SD_CMD_DAT_DIR_HC	0
 #define SD_CMD_DAT_DIR_CH	(1 << 4)
@@ -136,150 +150,455 @@ struct emmc_block_dev
 #define SD_ERR_MASK_ADMA		(1 << (16 + SD_ERR_CMD_ADMA))
 #define SD_ERR_MASK_TUNING		(1 << (16 + SD_ERR_CMD_TUNING))
 
+#define SD_RESP_NONE        SD_CMD_RSPNS_TYPE_NONE
+#define SD_RESP_R1          (SD_CMD_RSPNS_TYPE_48 | SD_CMD_CRCCHK_EN)
+#define SD_RESP_R1b         (SD_CMD_RSPNS_TYPE_48B | SD_CMD_CRCCHK_EN)
+#define SD_RESP_R2          (SD_CMD_RSPNS_TYPE_136 | SD_CMD_CRCCHK_EN)
+#define SD_RESP_R3          SD_CMD_RSPNS_TYPE_48
+#define SD_RESP_R4          SD_CMD_RSPNS_TYPE_136
+#define SD_RESP_R5          (SD_CMD_RSPNS_TYPE_48 | SD_CMD_CRCCHK_EN)
+#define SD_RESP_R5b         (SD_CMD_RSPNS_TYPE_48B | SD_CMD_CRCCHK_EN)
+#define SD_RESP_R6          (SD_CMD_RSPNS_TYPE_48 | SD_CMD_CRCCHK_EN)
+#define SD_RESP_R7          (SD_CMD_RSPNS_TYPE_48 | SD_CMD_CRCCHK_EN)
+
+#define SD_DATA_READ        (SD_CMD_ISDATA | SD_CMD_DAT_DIR_CH)
+#define SD_DATA_WRITE       (SD_CMD_ISDATA | SD_CMD_DAT_DIR_HC)
+
+#define SD_CMD_RESERVED(a)  0xffffffff
+
+#define SUCCESS(a)          (a->last_cmd_success)
+#define FAIL(a)             (a->last_cmd_success == 0)
+#define TIMEOUT(a)          (FAIL(a) && (a->last_error == 0))
+#define CMD_TIMEOUT(a)      (FAIL(a) && (a->last_error & (a << 16)))
+#define CMD_CRC(a)          (FAIL(a) && (a->last_error & (a << 17)))
+#define CMD_END_BIT(a)      (FAIL(a) && (a->last_error & (a << 18)))
+#define CMD_INDEX(a)        (FAIL(a) && (a->last_error & (a << 19)))
+#define DATA_TIMEOUT(a)     (FAIL(a) && (a->last_error & (a << 20)))
+#define DATA_CRC(a)         (FAIL(a) && (a->last_error & (a << 21)))
+#define DATA_END_BIT(a)     (FAIL(a) && (a->last_error & (a << 22)))
+#define CURRENT_LIMIT(a)    (FAIL(a) && (a->last_error & (a << 23)))
+#define ACMD12_ERROR(a)     (FAIL(a) && (a->last_error & (a << 24)))
+#define ADMA_ERROR(a)       (FAIL(a) && (a->last_error & (a << 25)))
+#define TUNING_ERROR(a)     (FAIL(a) && (a->last_error & (a << 26)))
+
+#ifdef EMMC_DEBUG
 static char *err_irpts[] = { "CMD_TIMEOUT", "CMD_CRC", "CMD_END_BIT", "CMD_INDEX",
 	"DATA_TIMEOUT", "DATA_CRC", "DATA_END_BIT", "CURRENT_LIMIT",
 	"AUTO_CMD12", "ADMA", "TUNING", "RSVD" };
+#endif
 
 int sd_read(struct block_device *, uint8_t *, size_t buf_size, uint32_t);
 
-static void sd_send_command(uint32_t command)
-{
-	// Wait for the CMD inhibit bit to clear
-	while(mmio_read(EMMC_BASE + EMMC_STATUS) & 0x1)
-		usleep(1000);
+static uint32_t sd_commands[] = {
+    SD_CMD_INDEX(0),
+    SD_CMD_RESERVED(1),
+    SD_CMD_INDEX(2) | SD_RESP_R2,
+    SD_CMD_INDEX(3) | SD_RESP_R6,
+    SD_CMD_INDEX(4),
+    SD_CMD_RESERVED(5),
+    SD_CMD_RESERVED(6),
+    SD_CMD_INDEX(7) | SD_RESP_R1b,
+    SD_CMD_INDEX(8) | SD_RESP_R7,
+    SD_CMD_INDEX(9) | SD_RESP_R2,
+    SD_CMD_INDEX(10) | SD_RESP_R2,
+    SD_CMD_INDEX(11) | SD_RESP_R1,
+    SD_CMD_INDEX(12) | SD_RESP_R1b | SD_CMD_TYPE_ABORT,
+    SD_CMD_INDEX(13) | SD_RESP_R1,
+    SD_CMD_RESERVED(14),
+    SD_CMD_INDEX(15),
+    SD_CMD_INDEX(16) | SD_RESP_R1,
+    SD_CMD_INDEX(17) | SD_RESP_R1 | SD_DATA_READ,
+    SD_CMD_INDEX(18) | SD_RESP_R1 | SD_DATA_READ | SD_CMD_MULTI_BLOCK,
+    SD_CMD_INDEX(19) | SD_RESP_R1 | SD_DATA_READ,
+    SD_CMD_INDEX(20) | SD_RESP_R1b,
+    SD_CMD_RESERVED(21),
+    SD_CMD_RESERVED(22),
+    SD_CMD_INDEX(23) | SD_RESP_R1,
+    SD_CMD_INDEX(24) | SD_RESP_R1 | SD_DATA_WRITE,
+    SD_CMD_INDEX(25) | SD_RESP_R1 | SD_DATA_WRITE | SD_CMD_MULTI_BLOCK,
+    SD_CMD_RESERVED(26),
+    SD_CMD_INDEX(27) | SD_RESP_R1 | SD_DATA_WRITE,
+    SD_CMD_INDEX(28) | SD_RESP_R1b,
+    SD_CMD_INDEX(29) | SD_RESP_R1b,
+    SD_CMD_INDEX(30) | SD_RESP_R1 | SD_DATA_READ,
+    SD_CMD_RESERVED(31),
+    SD_CMD_INDEX(32) | SD_RESP_R1,
+    SD_CMD_INDEX(33) | SD_RESP_R1,
+    SD_CMD_RESERVED(34),
+    SD_CMD_RESERVED(35),
+    SD_CMD_RESERVED(36),
+    SD_CMD_RESERVED(37),
+    SD_CMD_INDEX(38) | SD_RESP_R1b,
+    SD_CMD_RESERVED(39),
+    SD_CMD_RESERVED(40),
+    SD_CMD_RESERVED(41),
+    SD_CMD_RESERVED(42) | SD_RESP_R1,
+    SD_CMD_RESERVED(43),
+    SD_CMD_RESERVED(44),
+    SD_CMD_RESERVED(45),
+    SD_CMD_RESERVED(46),
+    SD_CMD_RESERVED(47),
+    SD_CMD_RESERVED(48),
+    SD_CMD_RESERVED(49),
+    SD_CMD_RESERVED(50),
+    SD_CMD_RESERVED(51),
+    SD_CMD_RESERVED(52),
+    SD_CMD_RESERVED(53),
+    SD_CMD_RESERVED(54),
+    SD_CMD_INDEX(55) | SD_RESP_R1,
+    SD_CMD_INDEX(56) | SD_RESP_R1 | SD_CMD_ISDATA,
+    SD_CMD_RESERVED(57),
+    SD_CMD_RESERVED(58),
+    SD_CMD_RESERVED(59),
+    SD_CMD_RESERVED(60),
+    SD_CMD_RESERVED(61),
+    SD_CMD_RESERVED(62),
+    SD_CMD_RESERVED(63)
+};
 
-	// Send the command
-	mmio_write(EMMC_BASE + EMMC_CMDTM, command);
+static uint32_t sd_acommands[] = {
+    SD_CMD_RESERVED(0),
+    SD_CMD_RESERVED(1),
+    SD_CMD_RESERVED(2),
+    SD_CMD_RESERVED(3),
+    SD_CMD_RESERVED(4),
+    SD_CMD_RESERVED(5),
+    SD_CMD_INDEX(6) | SD_RESP_R1,
+    SD_CMD_RESERVED(7),
+    SD_CMD_RESERVED(8),
+    SD_CMD_RESERVED(9),
+    SD_CMD_RESERVED(10),
+    SD_CMD_RESERVED(11),
+    SD_CMD_RESERVED(12),
+    SD_CMD_INDEX(13) | SD_RESP_R1,
+    SD_CMD_RESERVED(14),
+    SD_CMD_RESERVED(15),
+    SD_CMD_RESERVED(16),
+    SD_CMD_RESERVED(17),
+    SD_CMD_RESERVED(18),
+    SD_CMD_RESERVED(19),
+    SD_CMD_RESERVED(20),
+    SD_CMD_RESERVED(21),
+    SD_CMD_INDEX(22) | SD_RESP_R1 | SD_DATA_READ,
+    SD_CMD_INDEX(23) | SD_RESP_R1,
+    SD_CMD_RESERVED(24),
+    SD_CMD_RESERVED(25),
+    SD_CMD_RESERVED(26),
+    SD_CMD_RESERVED(27),
+    SD_CMD_RESERVED(28),
+    SD_CMD_RESERVED(29),
+    SD_CMD_RESERVED(30),
+    SD_CMD_RESERVED(31),
+    SD_CMD_RESERVED(32),
+    SD_CMD_RESERVED(33),
+    SD_CMD_RESERVED(34),
+    SD_CMD_RESERVED(35),
+    SD_CMD_RESERVED(36),
+    SD_CMD_RESERVED(37),
+    SD_CMD_RESERVED(38),
+    SD_CMD_RESERVED(39),
+    SD_CMD_RESERVED(40),
+    SD_CMD_INDEX(41) | SD_RESP_R3,
+    SD_CMD_INDEX(42) | SD_RESP_R1,
+    SD_CMD_RESERVED(43),
+    SD_CMD_RESERVED(44),
+    SD_CMD_RESERVED(45),
+    SD_CMD_RESERVED(46),
+    SD_CMD_RESERVED(47),
+    SD_CMD_RESERVED(48),
+    SD_CMD_RESERVED(49),
+    SD_CMD_RESERVED(50),
+    SD_CMD_INDEX(51) | SD_RESP_R1,
+    SD_CMD_RESERVED(52),
+    SD_CMD_RESERVED(53),
+    SD_CMD_RESERVED(54),
+    SD_CMD_RESERVED(55),
+    SD_CMD_RESERVED(56),
+    SD_CMD_RESERVED(57),
+    SD_CMD_RESERVED(58),
+    SD_CMD_RESERVED(59),
+    SD_CMD_RESERVED(60),
+    SD_CMD_RESERVED(61),
+    SD_CMD_RESERVED(62),
+    SD_CMD_RESERVED(63)
+};
+
+// The actual command indices
+#define GO_IDLE_STATE           0
+#define ALL_SEND_CID            2
+#define SEND_RELATIVE_ADDR      3
+#define SET_DSR                 4
+#define SELECT_CARD             7
+#define DESELECT_CARD           7
+#define SELECT_DESELECT_CARD    7
+#define SEND_IF_COND            8
+#define SEND_CSD                9
+#define SEND_CID                10
+#define VOLTAGE_SWITCH          11
+#define STOP_TRANSMISSION       12
+#define SEND_STATUS             13
+#define GO_INACTIVE_STATE       15
+#define SET_BLOCKLEN            16
+#define READ_SINGLE_BLOCK       17
+#define READ_MULTIPLE_BLOCK     18
+#define SEND_TUNING_BLOCK       19
+#define SPEED_CLASS_CONTROL     20
+#define SET_CLOCK_COUNT         23
+#define WRITE_BLOCK             24
+#define WRITE_MULTIPLE_BLOCK    25
+#define PROGRAM_CSD             27
+#define SET_WRITE_PROT          28
+#define CLR_WRITE_PROT          29
+#define SEND_WRITE_PROT         30
+#define ERASE_WR_BLK_START      32
+#define ERASE_WR_BLK_END        33
+#define ERASE                   38
+#define LOCK_UNLOCK             42
+#define APP_CMD                 55
+#define GEN_CMD                 56
+
+#define IS_APP_CMD              0x80000000
+#define ACMD(a)                 (a | IS_APP_CMD)
+#define SET_BUS_WIDTH           (6 | IS_APP_CMD)
+#define SD_STATUS               (13 | IS_APP_CMD)
+#define SEND_NUM_WR_BLOCKS      (22 | IS_APP_CMD)
+#define SET_WR_BLK_ERASE_COUNT  (23 | IS_APP_CMD)
+#define SD_SEND_OP_COND         (41 | IS_APP_CMD)
+#define SET_CLR_CARD_DETECT     (42 | IS_APP_CMD)
+#define SEND_SCR                (51 | IS_APP_CMD)
+
+static void sd_issue_command_int(struct emmc_block_dev *dev, uint32_t cmd_reg, uint32_t argument, useconds_t timeout)
+{
+    dev->last_cmd_reg = cmd_reg;
+    dev->last_cmd_success = 0;
+
+    // This is as per HCSS 3.7.1.1
+
+    // Check Command Inhibit
+    while(mmio_read(EMMC_BASE + EMMC_STATUS) & 0x1)
+        usleep(1000);
+
+    // Is the command with busy?
+    if((cmd_reg & SD_CMD_RSPNS_TYPE_MASK) == SD_CMD_RSPNS_TYPE_48B)
+    {
+        // With busy
+
+        // Is is an abort command?
+        if((cmd_reg & SD_CMD_TYPE_MASK) != SD_CMD_TYPE_ABORT)
+        {
+            // Not an abort command
+
+            // Wait for the data line to be free
+            while(mmio_read(EMMC_BASE + EMMC_STATUS) & 0x2)
+                usleep(1000);
+        }
+    }
+
+    // Set argument 1 reg
+    mmio_write(EMMC_BASE + EMMC_ARG1, argument);
+
+    // Set command reg
+    mmio_write(EMMC_BASE + EMMC_CMDTM, cmd_reg);
+
+    usleep(2000);
+
+    // Wait for command complete interrupt
+    TIMEOUT_WAIT(mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x8001, timeout);
+    uint32_t irpts = mmio_read(EMMC_BASE + EMMC_INTERRUPT);
+
+    // Clear command complete status
+    mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0xffff0001);
+
+    // Test for errors
+    if((irpts & 0xffff0001) != 0x1)
+    {
+#ifdef EMMC_DEBUG
+        printf("SD: error occured whilst waiting for command complete interrupt\n");
+#endif
+        dev->last_error = irpts & 0xffff0000;
+        dev->last_interrupt = irpts;
+        return;
+    }
+
+    usleep(2000);
+
+    // Get response data
+    switch(cmd_reg & SD_CMD_RSPNS_TYPE_MASK)
+    {
+        case SD_CMD_RSPNS_TYPE_48:
+        case SD_CMD_RSPNS_TYPE_48B:
+            dev->last_r0 = mmio_read(EMMC_BASE + EMMC_RESP0);
+            break;
+
+        case SD_CMD_RSPNS_TYPE_136:
+            dev->last_r0 = mmio_read(EMMC_BASE + EMMC_RESP0);
+            dev->last_r1 = mmio_read(EMMC_BASE + EMMC_RESP1);
+            dev->last_r2 = mmio_read(EMMC_BASE + EMMC_RESP2);
+            dev->last_r3 = mmio_read(EMMC_BASE + EMMC_RESP3);
+            break;
+    }
+
+    // If with data, wait for the appropriate interrupt
+    if(cmd_reg & SD_CMD_ISDATA)
+    {
+        uint32_t wr_irpt;
+        int is_write = 0;
+        if(cmd_reg & SD_CMD_DAT_DIR_CH)
+            wr_irpt = (1 << 5);     // read
+        else
+        {
+            is_write = 1;
+            wr_irpt = (1 << 4);     // write
+        }
+
+        int cur_block = 0;
+        uint32_t *cur_buf_addr = (uint32_t *)dev->buf;
+        while(cur_block < dev->blocks_to_transfer)
+        {
+            TIMEOUT_WAIT(mmio_read(EMMC_BASE + EMMC_INTERRUPT) & (wr_irpt | 0x8000), timeout);
+            irpts = mmio_read(EMMC_BASE + EMMC_INTERRUPT);
+            mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0xffff0000 | wr_irpt);
+
+            if((irpts & (0xffff0000 | wr_irpt)) != wr_irpt)
+            {
+#ifdef EMMC_DEBUG
+            printf("SD: error occured whilst waiting for data ready interrupt\n");
+#endif
+                dev->last_error = irpts & 0xffff0000;
+                dev->last_interrupt = irpts;
+                return;
+            }
+
+            // Transfer the block
+            size_t cur_byte_no = 0;
+            while(cur_byte_no < dev->block_size)
+            {
+                if(is_write)
+                    mmio_write(EMMC_BASE + EMMC_DATA, *cur_buf_addr);
+                else
+                    *cur_buf_addr = mmio_read(EMMC_BASE + EMMC_DATA);
+                cur_byte_no += 4;
+                cur_buf_addr++;
+            }
+
+            cur_block++;
+        }
+    }
+
+    // Wait for transfer complete (set if read/write transfer or with busy)
+    if(((cmd_reg & SD_CMD_RSPNS_TYPE_MASK) == SD_CMD_RSPNS_TYPE_48B) ||
+       (cmd_reg & SD_CMD_ISDATA))
+    {
+        // First check command inhibit (DAT) is not already 0
+        if((mmio_read(EMMC_BASE + EMMC_STATUS) & 0x2) == 0)
+            mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0xffff0002);
+        else
+        {
+            TIMEOUT_WAIT(mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x8002, timeout);
+            irpts = mmio_read(EMMC_BASE + EMMC_INTERRUPT);
+            mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0xffff0002);
+
+            // Handle the case where both data timeout and transfer complete
+            //  are set - transfer complete overrides data timeout: HCSS 2.2.17
+            if(((irpts & 0xffff0002) != 0x2) && ((irpts & 0xffff0002) != 0x100002))
+            {
+#ifdef EMMC_DEBUG
+                printf("SD: error occured whilst waiting for transfer complete interrupt\n");
+#endif
+                dev->last_error = irpts & 0xffff0000;
+                dev->last_interrupt = irpts;
+                return;
+            }
+            mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0xffff0002);
+        }
+    }
+
+    // Return success
+    dev->last_cmd_success = 1;
 }
 
-static int sd_wait_response(useconds_t usec, struct emmc_block_dev *dev)
+static void sd_issue_command(struct emmc_block_dev *dev, uint32_t command, uint32_t argument, useconds_t timeout)
 {
-	int response = 0;
-	uint32_t error = 0;
-
-	if(dev)
-	{
-		dev->last_error = 0;
-		dev->last_interrupt = 0;
-	}
-
-	if(usec == 0)
-	{
-		while((mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x1) == 0)
-		{
-			error = mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x8000;
-			if(error)
-				break;
-		}
-		if(!error)
-			response = 1;
-	}
-	else
-	{
-		TIMEOUT_WAIT(mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x1, usec);
-		response = mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x1;
-		error = mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x8000;
+    if(command & IS_APP_CMD)
+    {
+        command &= 0xff;
 #ifdef EMMC_DEBUG
-		if(!response)
-			printf("SD: no command result received, interrupt: %08x\n",
-					mmio_read(EMMC_BASE + EMMC_INTERRUPT));
+        printf("SD: issuing command ACMD%i\n", command);
 #endif
-	}
 
-	if(error)
-	{
-		uint32_t irpt = mmio_read(EMMC_BASE + EMMC_INTERRUPT);
-		if(dev)
-		{
-			dev->last_error = error;
-			dev->last_interrupt = irpt;
-		}
-		printf("SD: received error interrupt: %08x ", irpt);
-		for(int i = 0; i < SD_ERR_RSVD; i++)
-		{
-			if(irpt & (1 << (i + 16)))
-				printf(err_irpts[i]);
-		}
+        if(sd_acommands[command] == SD_CMD_RESERVED(0))
+        {
+            printf("SD: invalid command ACMD%i\n", command);
+            dev->last_cmd_success = 0;
+            return;
+        }
+        dev->last_cmd = APP_CMD;
+        sd_issue_command_int(dev, sd_commands[APP_CMD], 0, timeout);
+        if(dev->last_cmd_success)
+        {
+            dev->last_cmd = command | IS_APP_CMD;
+            sd_issue_command_int(dev, sd_acommands[command], argument, timeout);
+        }
+    }
+    else
+    {
+#ifdef EMMC_DEBUG
+        printf("SD: issuing command CMD%i\n", command);
+#endif
+
+        if(sd_commands[command] == SD_CMD_RESERVED(0))
+        {
+            printf("SD: invalid command CMD%i\n", command);
+            dev->last_cmd_success = 0;
+            return;
+        }
+
+        dev->last_cmd = command;
+        sd_issue_command_int(dev, sd_commands[command], argument, timeout);
+    }
+
+#ifdef EMMC_DEBUG
+    if(FAIL(dev))
+    {
+        printf("SD: error issuing command: interrupts %08x: ", dev->last_interrupt);
+        if(dev->last_error == 0)
+            printf("TIMEOUT");
+        else
+        {
+            for(int i = 0; i < SD_ERR_RSVD; i++)
+            {
+                if(dev->last_error & (1 << (i + 16)))
+                {
+                    printf(err_irpts[i]);
+                    printf(" ");
+                }
+            }
+        }
 		printf("\n");
-
-		if(irpt & 0x10000)
-		{
-			// Command timeout, dump status register
-			printf("SD: timeout error, status %08x\n",
-					mmio_read(EMMC_BASE + EMMC_STATUS));
-		}
-	}
-
-	// Reset the command done and error interrupt
-	mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0xffff0001);
-
-	return response;
-}
-
-/* Execute a R1 command
- *
- * If no error, returns 0 else the value of the interrupt register & 1
- *
- * dev - 	emmc structure
- * cmd - 	command to execute (+ control bits)
- * arg1 - 	value of ARG1
- * response - 	if not null, copy response to here
- * timeout -	how long to wait for a response
- * tries -	how many times to attempt retry
- * retry_mask - if the interrupt errors includes this mask then do a retry, else don't
- * 		we use bit 0 (value 1) to represent a timeout
- */
-static uint32_t sd_do_r1_cmd(struct emmc_block_dev *dev, uint32_t cmd, uint32_t arg1,
-		uint32_t *response, useconds_t timeout, int tries, uint32_t retry_mask)
-{
-	int cur_try = 0;
-	
-	// Clear error and cmd done interrupt
-	mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0xffff0001);
-
-	while(cur_try < tries)
-	{
-		mmio_write(EMMC_BASE + EMMC_ARG1, arg1);
-		sd_send_command(cmd);
-
-		int wait_response = sd_wait_response(timeout, dev);
-		uint32_t err_val = dev->last_error;
-		if(wait_response)
-		{
-			if(response != (void *)0)
-				*response = mmio_read(EMMC_BASE + EMMC_RESP0);
-			return 0;
-		}
-
-#ifdef EMMC_DEBUG
-		printf("SD: do_r1_cmd() command failed. ");
+    }
+    else
+        printf("SD: command completed successfully\n");
 #endif
-		
-		err_val |= 1;
-		if(retry_mask & err_val)
-		{
-			cur_try++;
-#ifdef EMMC_DEBUG
-			if(cur_try < tries)
-				printf("Retrying\n");
-			else
-				printf("Not retrying - retry count exceeded\n");
-#endif
-		}
-		else
-		{
-#ifdef EMMC_DEBUG
-			printf("Not retrying.\n");
-#endif
-			break;
-		}
-	};
-
-	return dev->last_interrupt & 1;
 }
 
 int sd_card_init(struct block_device **dev)
 {
+    // Check the sanity of the sd_commands and sd_acommands structures
+    if(sizeof(sd_commands) != (64 * sizeof(uint32_t)))
+    {
+        printf("EMMC: fatal error, sd_commands of incorrect size: %i"
+               " expected %i\n", sizeof(sd_commands),
+               64 * sizeof(uint32_t));
+        return -1;
+    }
+    if(sizeof(sd_acommands) != (64 * sizeof(uint32_t)))
+    {
+        printf("EMMC: fatal error, sd_acommands of incorrect size: %i"
+               " expected %i\n", sizeof(sd_acommands),
+               64 * sizeof(uint32_t));
+        return -1;
+    }
+
 	// Read the controller version
 	uint32_t ver = mmio_read(EMMC_BASE + EMMC_SLOTISR_VER);
 	uint32_t vendor = ver >> 24;
@@ -324,6 +643,7 @@ int sd_card_init(struct block_device **dev)
 #ifdef EMMC_DEBUG
 	printf("EMMC: checking for an inserted card\n");
 #endif
+    TIMEOUT_WAIT(mmio_read(EMMC_BASE + EMMC_STATUS) & (1 << 16), 500000);
 	uint32_t status_reg = mmio_read(EMMC_BASE + EMMC_STATUS);
 	if((status_reg & (1 << 16)) == 0)
 	{
@@ -378,62 +698,7 @@ int sd_card_init(struct block_device **dev)
 
 	usleep(2000);
 
-	// Send CMD0 to the card (reset to idle state)
-	mmio_write(EMMC_BASE + EMMC_CMDTM, SD_CMD_INDEX(0));
-#ifdef EMMC_DEBUG
-	printf("SD: sent CMD0 ");
-#endif
-
-	if(!sd_wait_response(500000, (void*)0))
-	{
-#ifdef EMMC_DEBUG
-		printf("- no response\n");
-#endif
-		printf("EMMC: no SD card detected\n");
-		return -1;
-	}
-
-#ifdef EMMC_DEBUG
-	printf("done\n");
-#endif
-
-	// Send CMD8 to the card
-	// Voltage supplied = 0x1 = 2.7-3.6V (standard)
-	// Check pattern = 10101010b (as per PLSS 4.3.13) = 0xAA
-	mmio_write(EMMC_BASE + EMMC_INTERRUPT, 1);
-	mmio_write(EMMC_BASE + EMMC_ARG1, 0x000001AA);
-	mmio_write(EMMC_BASE + EMMC_CMDTM, SD_CMD_INDEX(8) | SD_CMD_CRCCHK_EN |
-			SD_CMD_RSPNS_TYPE_48);
-#ifdef EMMC_DEBUG
-	printf("SD: sent CMD8, ");
-#endif
-	// Wait for a response
-	int can_set_sdhc = sd_wait_response(500000, (void*)0);
-	uint32_t sdhc_flag = 0;
-	if(can_set_sdhc)
-	{
-		uint32_t cmd8_resp = mmio_read(EMMC_BASE + EMMC_RESP0);
-#ifdef EMMC_DEBUG
-		printf("received response: %08x\n", cmd8_resp);
-#else
-		(void)cmd8_resp;
-#endif
-		// The CMD8 response is R7 (card interface condition) - PLSS 4.9.6
-		// Bits 0-7 should be the check pattern
-		// Bits 8-11 should be the accepted voltage (in this case 1 = 2.7-3.6V)
-		if((cmd8_resp & 0xfff) != 0x1aa)
-		{
-			printf("SD: unusable card, exiting\n");
-			return -1;
-		}
-		sdhc_flag = 0x40000000;
-	}
-#ifdef EMMC_DEBUG
-	else
-		printf("no response received\n");
-#endif
-
-	// Prepare the device structure
+    // Prepare the device structure
 	struct emmc_block_dev *ret;
 	if(*dev == 0)
 		ret = (struct emmc_block_dev *)malloc(sizeof(struct emmc_block_dev));
@@ -446,79 +711,97 @@ int sd_card_init(struct block_device **dev)
 	ret->bd.block_size = 512;
 	ret->bd.read = sd_read;
 
-	// Check ACMD41
-	while(1)
+	// Send CMD0 to the card (reset to idle state)
+	sd_issue_command(ret, GO_IDLE_STATE, 0, 500000);
+	if(FAIL(ret))
 	{
-		usleep(500000);
+        printf("SD: no CMD0 response\n");
+        return -1;
+	}
+
+	// Send CMD8 to the card
+	// Voltage supplied = 0x1 = 2.7-3.6V (standard)
+	// Check pattern = 10101010b (as per PLSS 4.3.13) = 0xAA
+	sd_issue_command(ret, SEND_IF_COND, 0x1aa, 500000);
+	int v2_later = 0;
+	if(TIMEOUT(ret))
+        v2_later = 0;
+    else if(FAIL(ret))
+    {
+        printf("SD: failure sending CMD8\n");
+        return -1;
+    }
+    else
+    {
+        if((ret->last_r0 & 0xfff) != 0x1aa)
+        {
+            printf("SD: unusable card\n");
 #ifdef EMMC_DEBUG
-		printf("SD: sending ACMD41: CMD55: ");
+            printf("SD: CMD8 response %08x\n", ret->last_r0);
 #endif
-		mmio_write(EMMC_BASE + EMMC_ARG1, 0);
-		sd_send_command(SD_CMD_INDEX(55) | SD_CMD_CRCCHK_EN | SD_CMD_RSPNS_TYPE_48);
-		if(!sd_wait_response(500000, ret))
-		{
+        }
+        else
+            v2_later = 1;
+    }
+
+    // Here we are supposed to check the response to CMD5 (HCSS 3.6)
+    // It only returns if the card is a SDIO card
+    sd_issue_command(ret, 5, 0, 10000);
+    if(!TIMEOUT(ret))
+    {
+        printf("SD: SDIO card detected - not currently supported");
 #ifdef EMMC_DEBUG
-			printf("SD: no CMD55 response, retrying\n");
+        printf("SD: CMD5 returned %08x\n", ret->last_r0);
 #endif
-			if(ret->last_interrupt & 0x10000)
-			{
-				// timeout occured
-				usleep(20000);
-				free(ret);
-				return sd_card_init(dev);
-			}
+        return -1;
+    }
 
-			continue;
-		}
+    // Call an inquiry ACMD41 (voltage window = 0) to get the OCR
 #ifdef EMMC_DEBUG
-		printf("done, response %08x, ACMD41: ", mmio_read(EMMC_BASE + EMMC_RESP0));
+    printf("SD: sending inquiry ACMD41\n");
 #endif
-
-		usleep(2000);
-
-		// Request SDHC mode if available
-//		mmio_write(EMMC_BASE + EMMC_ARG1, (1 << 30) | (1 << 24) | 0x00FF8000);
-		mmio_write(EMMC_BASE + EMMC_ARG1, 0x00FF8000 | sdhc_flag);
-		sd_send_command(SD_CMD_INDEX(41) | SD_CMD_RSPNS_TYPE_48);
-		usleep(500000);
-
-		// Await the response
-		if(!sd_wait_response(500000, ret))
-		{
-			printf("SD: unusable card\n");
-			free(ret);
-			return -1;
-		}
-
+    sd_issue_command(ret, ACMD(41), 0, 500000);
+    if(FAIL(ret))
+    {
+        printf("SD: inquiry ACMD41 failed\n");
+        return -1;
+    }
 #ifdef EMMC_DEBUG
-		printf("done\n");
+    printf("SD: inquiry ACMD41 returned %08x\n", ret->last_r0);
 #endif
 
-		// Read the response
-		usleep(250000);
-		uint32_t acmd41_resp = mmio_read(EMMC_BASE + EMMC_RESP0);
+	// Call initialization ACMD41
+	int card_is_busy = 1;
+	while(card_is_busy)
+	{
+	    uint32_t v2_flags = 0;
+	    if(v2_later)
+            //v2_flags |= ((1 << 30) | (1 << 24) | (1 << 28));
+            v2_flags |= (1 << 30);
+
+	    sd_issue_command(ret, ACMD(41), 0x00ff8000 | v2_flags, 500000);
+	    if(FAIL(ret))
+	    {
+	        printf("SD: error issuing ACMD41\n");
+	        return -1;
+	    }
+
+	    if((ret->last_r0 >> 31) & 0x1)
+	    {
+	        // Initialization is complete
+	        ret->card_ocr = (ret->last_r0 >> 8) & 0xffff;
+	        ret->card_supports_sdhc = (ret->last_r0 >> 30) & 0x1;
+	        ret->card_supports_18v = (ret->last_r0 >> 24) & 0x1;
+	        card_is_busy = 0;
+	    }
+	    else
+	    {
+	        // Card is still busy
 #ifdef EMMC_DEBUG
-		printf("SD: ACMD41 response: %08x\n",
-				acmd41_resp);
+            printf("SD: card is busy, retrying\n");
 #endif
-
-		uint32_t card_ready = (acmd41_resp >> 31) & 0x1;
-		if(!card_ready)
-		{
-			printf("SD: card not yet ready\n");
-			usleep(1000000);
-			continue;
-		}
-
-		ret->card_supports_sdhc = (acmd41_resp >> 30) & 0x1;
-#ifdef EMMC_18V
-		ret->card_supports_18v = (acmd41_resp >> 24) & 0x1;
-#else
-		ret->card_supports_18v = 0;
-#endif
-		ret->card_ocr = (acmd41_resp >> 8) & 0xffff;
-	
-		break;
+            usleep(500000);
+	    }
 	}
 
 #ifdef EMMC_DEBUG
@@ -526,36 +809,19 @@ int sd_card_init(struct block_device **dev)
 			ret->card_ocr, ret->card_supports_18v, ret->card_supports_sdhc);
 #endif
 
-	// Switch to 1.8V mode if possible
-	if(ret->card_supports_18v)
-	{
-#ifdef EMMC_DEBUG
-		printf("SD: switching to 1.8V mode: ");
-#endif
-
-		mmio_write(EMMC_BASE + EMMC_ARG1, 0);
-		mmio_write(EMMC_BASE + EMMC_INTERRUPT, 1);
-		mmio_write(EMMC_BASE + EMMC_CMDTM, SD_CMD_INDEX(11) | SD_CMD_CRCCHK_EN |
-				SD_CMD_RSPNS_TYPE_48);
-
-		// Wait for completion
-		while((mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x1) == 0);
-
-		printf("done\n");
-	}
+	// TODO: Switch to 1.8V mode if possible
 
 	// Send CMD2 to get the cards CID
-	sd_send_command(SD_CMD_INDEX(2) | SD_CMD_CRCCHK_EN | SD_CMD_RSPNS_TYPE_136);
-	if(!sd_wait_response(500000, ret))
+	sd_issue_command(ret, ALL_SEND_CID, 0, 500000);
+	if(FAIL(ret))
 	{
-		printf("SD: no CMD2 response\n");
-		free(ret);
-		return -1;
+	    printf("SD: error sending ALL_SEND_CID\n");
+	    return -1;
 	}
-	uint32_t card_cid_0 = mmio_read(EMMC_BASE + EMMC_RESP0);
-	uint32_t card_cid_1 = mmio_read(EMMC_BASE + EMMC_RESP1);
-	uint32_t card_cid_2 = mmio_read(EMMC_BASE + EMMC_RESP2);
-	uint32_t card_cid_3 = mmio_read(EMMC_BASE + EMMC_RESP3);
+	uint32_t card_cid_0 = ret->last_r0;
+	uint32_t card_cid_1 = ret->last_r1;
+	uint32_t card_cid_2 = ret->last_r2;
+	uint32_t card_cid_3 = ret->last_r3;
 
 #ifdef EMMC_DEBUG
 	printf("SD: card CID: %08x%08x%08x%08x\n", card_cid_3, card_cid_2, card_cid_1, card_cid_0);
@@ -569,14 +835,15 @@ int sd_card_init(struct block_device **dev)
 	ret->bd.dev_id_len = 4 * sizeof(uint32_t);
 
 	// Send CMD3 to enter the data state
-	sd_send_command(SD_CMD_INDEX(3) | SD_CMD_CRCCHK_EN | SD_CMD_RSPNS_TYPE_48);
-	if(!sd_wait_response(500000, ret))
-	{
-		printf("SD: no CMD3 response\n");
-		free(ret);
-		return -1;
-	}
-	uint32_t cmd3_resp = mmio_read(EMMC_BASE + EMMC_RESP0);
+	sd_issue_command(ret, SEND_RELATIVE_ADDR, 0, 500000);
+	if(FAIL(ret))
+    {
+        printf("SD: error sending SEND_RELATIVE_ADDR\n");
+        free(ret);
+        return -1;
+    }
+
+	uint32_t cmd3_resp = ret->last_r0;
 #ifdef EMMC_DEBUG
 	printf("SD: CMD3 response: %08x\n", cmd3_resp);
 #endif
@@ -625,15 +892,15 @@ int sd_card_init(struct block_device **dev)
 #endif
 
 	// Now select the card (toggles it to transfer state)
-	mmio_write(EMMC_BASE + EMMC_ARG1, ret->card_rca << 16);
-	sd_send_command(SD_CMD_INDEX(7) | SD_CMD_CRCCHK_EN | SD_CMD_RSPNS_TYPE_48B);
-	if(!sd_wait_response(500000, ret))
+	sd_issue_command(ret, SELECT_CARD, ret->card_rca << 16, 500000);
+	if(FAIL(ret))
 	{
-		printf("SD: no CMD7 response\n");
-		free(ret);
-		return -1;
+	    printf("SD: error sending CMD7\n");
+	    free(ret);
+	    return -1;
 	}
-	uint32_t cmd7_resp = mmio_read(EMMC_BASE + EMMC_RESP0);
+
+	uint32_t cmd7_resp = ret->last_r0;
 	status = (cmd7_resp >> 9) & 0xf;
 
 	if((status != 3) && (status != 4))
@@ -647,15 +914,15 @@ int sd_card_init(struct block_device **dev)
 	// If not an SDHC card, ensure BLOCKLEN is 512 bytes
 	if(!ret->card_supports_sdhc)
 	{
-		mmio_write(EMMC_BASE + EMMC_ARG1, 512);
-		sd_send_command(SD_CMD_INDEX(16) | SD_CMD_CRCCHK_EN | SD_CMD_RSPNS_TYPE_48);
-		if(!sd_wait_response(500000, ret))
-		{
-			printf("SD: no CMD16 response\n");
-			free(ret);
-			return -1;
-		}
+	    sd_issue_command(ret, SET_BLOCKLEN, 512, 500000);
+	    if(FAIL(ret))
+	    {
+	        printf("SD: error sending SET_BLOCKLEN\n");
+	        free(ret);
+	        return -1;
+	    }
 	}
+	ret->block_size = 512;
 	uint32_t controller_block_size = mmio_read(EMMC_BASE + 0x4);
 	controller_block_size &= (~0xfff);
 	controller_block_size |= 0x200;
@@ -719,15 +986,15 @@ int sd_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t bl
 	printf("SD: read() obtaining status register: ");
 #endif
 
-	mmio_write(EMMC_BASE + EMMC_ARG1, edev->card_rca << 16);
-	sd_send_command(SD_CMD_INDEX(13) | SD_CMD_CRCCHK_EN | SD_CMD_RSPNS_TYPE_48);
-	if(!sd_wait_response(500000, edev))
-	{
-		printf("SD: read() no response from CMD13\n");
-		edev->card_rca = 0;
-		return -1;
-	}
-	uint32_t status = mmio_read(EMMC_BASE + EMMC_RESP0);
+    sd_issue_command(edev, SEND_STATUS, edev->card_rca << 16, 500000);
+    if(FAIL(edev))
+    {
+        printf("SD: read() error sending CMD13\n");
+        edev->card_rca = 0;
+        return -1;
+    }
+
+	uint32_t status = edev->last_r0;
 	uint32_t cur_state = (status >> 9) & 0xf;
 #ifdef EMMC_DEBUG
 	printf("status %i\n", cur_state);
@@ -735,9 +1002,8 @@ int sd_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t bl
 	if(cur_state == 3)
 	{
 		// Currently in the stand-by state - select it
-		mmio_write(EMMC_BASE + EMMC_ARG1, edev->card_rca << 16);
-		sd_send_command(SD_CMD_INDEX(7) | SD_CMD_CRCCHK_EN | SD_CMD_RSPNS_TYPE_48B);
-		if(!sd_wait_response(500000, edev))
+		sd_issue_command(edev, SELECT_CARD, edev->card_rca << 16, 500000);
+		if(FAIL(edev))
 		{
 			printf("SD: read() no response from CMD17\n");
 			edev->card_rca = 0;
@@ -747,8 +1013,8 @@ int sd_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t bl
 	else if(cur_state == 5)
 	{
 		// In the data transfer state - cancel the transmission
-		sd_send_command(SD_CMD_INDEX(12) | SD_CMD_CRCCHK_EN | SD_CMD_RSPNS_TYPE_48B);
-		if(!sd_wait_response(500000, edev))
+		sd_issue_command(edev, STOP_TRANSMISSION, 0, 500000);
+		if(FAIL(edev))
 		{
 			printf("SD: read() no response from CMD12\n");
 			edev->card_rca = 0;
@@ -769,15 +1035,14 @@ int sd_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t bl
 #ifdef EMMC_DEBUG
 		printf("SD: read() rechecking status: ");
 #endif
-		mmio_write(EMMC_BASE + EMMC_ARG1, edev->card_rca << 16);
-		sd_send_command(SD_CMD_INDEX(13) | SD_CMD_CRCCHK_EN | SD_CMD_RSPNS_TYPE_48);
-		if(!sd_wait_response(500000, edev))
+        sd_issue_command(edev, SEND_STATUS, edev->card_rca << 16, 500000);
+        if(FAIL(edev))
 		{
 			printf("SD: read() no response from CMD13\n");
 			edev->card_rca = 0;
 			return -1;
 		}
-		status = mmio_read(EMMC_BASE + EMMC_RESP0);
+		status = edev->last_r0;
 		cur_state = (status >> 9) & 0xf;
 
 #ifdef EMMC_DEBUG
@@ -805,149 +1070,43 @@ int sd_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t bl
 	// Note that block size and block count are already set
 
 	// Send the read single block command
-	uint32_t cmd_17_resp;
-	uint32_t cmd_17_ctrl = sd_do_r1_cmd(edev, SD_CMD_INDEX(17) | SD_CMD_CRCCHK_EN |
-			SD_CMD_RSPNS_TYPE_48 | SD_CMD_DAT_DIR_CH | SD_CMD_ISDATA,
-			block_no, &cmd_17_resp, 500000, 3, SD_ERR_MASK_CMD_CRC |
-			SD_ERR_MASK_DATA_CRC);
-
-	if(cmd_17_ctrl)
+	edev->blocks_to_transfer = 1;
+	edev->buf = buf;
+	if(buf_size < edev->block_size)
 	{
-		printf("SD: error from CMD17 command: %08x\n", cmd_17_ctrl);
-		return -1;
+	    printf("SD: read() called with buffer size (%i) less than "
+            "block size (%i)\n", buf_size, edev->block_size);
+        return -1;
 	}
-
-	// Get response data
-	uint32_t cmd17_resp = mmio_read(EMMC_BASE + EMMC_RESP0);
-	if(cmd17_resp != 0x900)	// STATE = transfer, READY_FOR_DATA = set
+	int retry_count = 0;
+	int max_retries = 3;
+	while(retry_count < max_retries)
 	{
-		printf("SD: error invalid CMD17 response: %x\n", cmd17_resp);
-		return -1;
+        sd_issue_command(edev, READ_SINGLE_BLOCK, block_no, 500000);
+
+        if(SUCCESS(edev))
+            break;
+        else
+        {
+            printf("SD: error sending READ_SINGLE_BLOCK command, ");
+            printf("error = %08x.  ", edev->last_error);
+            retry_count++;
+            if(retry_count < max_retries)
+                printf("Retrying...\n");
+            else
+                printf("Giving up.\n");
+        }
 	}
-
-#ifdef EMMC_DEBUG
-	printf("SD: read command complete, waiting for data (current INTERRUPT: %08x, "
-			"STATUS: %08x)\n",
-			mmio_read(EMMC_BASE + EMMC_INTERRUPT),
-			mmio_read(EMMC_BASE + EMMC_STATUS));
-#endif
-	
-	// Read data
-	int byte_no = 0;
-	int bytes_to_read = (int)buf_size;
-	if(bytes_to_read > 512)
-		bytes_to_read = 512;		// read a maximum of 512 bytes
-
-	// Wait for buffer read ready interrupt
-#ifdef EMMC_DEBUG
-	printf("SD: awaiting buffer read ready interrupt: ");
-	int card_interrupt_displayed = 0;
-	uint32_t old_interrupt = 0;
-#endif
-	struct timer_wait *buffer_ready_wait = register_timer(500000);
-	while((mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x20) == 0)
-	{
-		uint32_t cur_irpt = mmio_read(EMMC_BASE + EMMC_INTERRUPT);
-
-		if(cur_irpt & SD_ERR_MASK_DATA_CRC)
-		{
-#ifdef EMMC_DEBUG
-			printf("received data CRC error interrupt, retrying\n");
-#endif
-			mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0xffff0001);
-			return -1;
-		}
-
-#ifdef EMMC_DEBUG
-		if(cur_irpt != old_interrupt)
-		{
-			printf("SD: interrupt %08x\n", cur_irpt);
-			old_interrupt = cur_irpt;
-		}
-		if(cur_irpt & 0x100)
-		{
-			if(!card_interrupt_displayed)
-			{
-				// Get card status (CMD13)
-				mmio_write(EMMC_BASE + EMMC_ARG1, edev->card_rca << 16);
-				sd_send_command(SD_CMD_INDEX(13) | SD_CMD_CRCCHK_EN |
-						SD_CMD_RSPNS_TYPE_48);
-				if(!sd_wait_response(500000, edev))
-				{
-					printf("SD: read() no response from CMD13\n");
-					edev->card_rca = 0;
-					return -1;
-				}
-				
-				uint32_t card_status = mmio_read(EMMC_BASE + EMMC_RESP0);
-				printf("SD: interrupt: %08x, controller status %08x, "
-						"card status %08x\n",
-						cur_irpt,
-						mmio_read(EMMC_BASE + EMMC_STATUS),
-						card_status);
-				card_interrupt_displayed = 1;
-			}
-		}
-#endif
-		usleep(1000);
-		if(compare_timer(buffer_ready_wait))
-		{
-#ifdef EMMC_DEBUG
-			printf("timeout.  Resetting card.\n");
-			edev->card_rca = 0;
-			return -1;
-#endif
-		}
-	}
-#ifdef EMMC_DEBUG
-	printf("done\n");
-#endif
-	// Clear buffer read ready interrupt
-	mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0x20);
-
-	// Get data
-	while(byte_no < 512)
-	{
-		uint32_t data = mmio_read(EMMC_BASE + EMMC_DATA);
-		uint8_t d0 = (uint8_t)(data & 0xff);
-		uint8_t d1 = (uint8_t)((data >> 8) & 0xff);
-		uint8_t d2 = (uint8_t)((data >> 16) & 0xff);
-		uint8_t d3 = (uint8_t)((data >> 24) & 0xff);
-
-		if(byte_no < bytes_to_read)
-			buf[byte_no++] = d0;
-		else
-			byte_no++;
-		if(byte_no < bytes_to_read)
-			buf[byte_no++] = d1;
-		else
-			byte_no++;
-		if(byte_no < bytes_to_read)
-			buf[byte_no++] = d2;
-		else
-			byte_no++;
-		if(byte_no < bytes_to_read)
-			buf[byte_no++] = d3;
-		else
-			byte_no++;
-	}
-
-	// Wait for transfer complete interrupt
-#ifdef EMMC_DEBUG
-	printf("SD: awaiting transfer complete interrupt ");
-#endif
-	while((mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x2) == 0)
-		usleep(1000);
-#ifdef EMMC_DEBUG
-	printf("done\n");
-#endif
-	// Clear transfer complete interrupt
-	mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0x2);
+	if(retry_count == max_retries)
+    {
+        edev->card_rca = 0;
+        return -1;
+    }
 
 #ifdef EMMC_DEBUG
 	printf("SD: data read successful\n");
 #endif
 
-	return byte_no;
+	return buf_size;
 }
 
