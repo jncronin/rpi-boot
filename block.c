@@ -23,7 +23,7 @@
 #include <stdio.h>
 #include "block.h"
 
-#define MAX_TRIES		3
+#define MAX_TRIES		1
 
 int block_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t starting_block)
 {
