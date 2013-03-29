@@ -252,7 +252,7 @@ static uint32_t sd_commands[] = {
     SD_CMD_INDEX(2) | SD_RESP_R2,
     SD_CMD_INDEX(3) | SD_RESP_R6,
     SD_CMD_INDEX(4),
-    SD_CMD_RESERVED(5),
+    SD_CMD_INDEX(5) | SD_RESP_R4,
     SD_CMD_INDEX(6) | SD_RESP_R1,
     SD_CMD_INDEX(7) | SD_RESP_R1b,
     SD_CMD_INDEX(8) | SD_RESP_R7,
@@ -385,6 +385,7 @@ static uint32_t sd_acommands[] = {
 #define ALL_SEND_CID            2
 #define SEND_RELATIVE_ADDR      3
 #define SET_DSR                 4
+#define IO_SET_OP_COND          5
 #define SWITCH_FUNC             6
 #define SELECT_CARD             7
 #define DESELECT_CARD           7
@@ -424,6 +425,25 @@ static uint32_t sd_acommands[] = {
 #define SD_SEND_OP_COND         (41 | IS_APP_CMD)
 #define SET_CLR_CARD_DETECT     (42 | IS_APP_CMD)
 #define SEND_SCR                (51 | IS_APP_CMD)
+
+#define SD_RESET_CMD            (1 << 25)
+#define SD_RESET_DAT            (1 << 26)
+#define SD_RESET_ALL            (1 << 24)
+
+static int sd_reset_cmd()
+{
+    // Reset the CMD line
+    uint32_t control1 = mmio_read(EMMC_BASE + EMMC_CONTROL1);
+	control1 |= SD_RESET_CMD;
+	mmio_write(EMMC_BASE + EMMC_CONTROL1, control1);
+	TIMEOUT_WAIT((mmio_read(EMMC_BASE + EMMC_CONTROL1) & SD_RESET_CMD) == 0, 1000000);
+	if((mmio_read(EMMC_BASE + EMMC_CONTROL1) & SD_RESET_CMD) != 0)
+	{
+		printf("EMMC: CMD line did not reset properly\n");
+		return -1;
+	}
+	return 0;
+}
 
 static void sd_issue_command_int(struct emmc_block_dev *dev, uint32_t cmd_reg, uint32_t argument, useconds_t timeout)
 {
@@ -1046,6 +1066,8 @@ int sd_card_init(struct block_device **dev)
         v2_later = 0;
     else if(CMD_TIMEOUT(ret))
     {
+        if(sd_reset_cmd() == -1)
+            return -1;
         mmio_write(EMMC_BASE + EMMC_INTERRUPT, SD_ERR_MASK_CMD_TIMEOUT);
         v2_later = 0;
     }
@@ -1070,14 +1092,23 @@ int sd_card_init(struct block_device **dev)
 
     // Here we are supposed to check the response to CMD5 (HCSS 3.6)
     // It only returns if the card is a SDIO card
-    sd_issue_command(ret, 5, 0, 10000);
+    sd_issue_command(ret, IO_SET_OP_COND, 0, 10000);
     if(!TIMEOUT(ret))
     {
-        printf("SD: SDIO card detected - not currently supported");
+        if(CMD_TIMEOUT(ret))
+        {
+            if(sd_reset_cmd() == -1)
+                return -1;
+            mmio_write(EMMC_BASE + EMMC_INTERRUPT, SD_ERR_MASK_CMD_TIMEOUT);
+        }
+        else
+        {
+            printf("SD: SDIO card detected - not currently supported\n");
 #ifdef EMMC_DEBUG
-        printf("SD: CMD5 returned %08x\n", ret->last_r0);
+            printf("SD: CMD5 returned %08x\n", ret->last_r0);
 #endif
-        return -1;
+            return -1;
+        }
     }
 
     // Call an inquiry ACMD41 (voltage window = 0) to get the OCR
