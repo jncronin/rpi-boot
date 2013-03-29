@@ -216,17 +216,17 @@ struct emmc_block_dev
 #define SUCCESS(a)          (a->last_cmd_success)
 #define FAIL(a)             (a->last_cmd_success == 0)
 #define TIMEOUT(a)          (FAIL(a) && (a->last_error == 0))
-#define CMD_TIMEOUT(a)      (FAIL(a) && (a->last_error & (a << 16)))
-#define CMD_CRC(a)          (FAIL(a) && (a->last_error & (a << 17)))
-#define CMD_END_BIT(a)      (FAIL(a) && (a->last_error & (a << 18)))
-#define CMD_INDEX(a)        (FAIL(a) && (a->last_error & (a << 19)))
-#define DATA_TIMEOUT(a)     (FAIL(a) && (a->last_error & (a << 20)))
-#define DATA_CRC(a)         (FAIL(a) && (a->last_error & (a << 21)))
-#define DATA_END_BIT(a)     (FAIL(a) && (a->last_error & (a << 22)))
-#define CURRENT_LIMIT(a)    (FAIL(a) && (a->last_error & (a << 23)))
-#define ACMD12_ERROR(a)     (FAIL(a) && (a->last_error & (a << 24)))
-#define ADMA_ERROR(a)       (FAIL(a) && (a->last_error & (a << 25)))
-#define TUNING_ERROR(a)     (FAIL(a) && (a->last_error & (a << 26)))
+#define CMD_TIMEOUT(a)      (FAIL(a) && (a->last_error & (1 << 16)))
+#define CMD_CRC(a)          (FAIL(a) && (a->last_error & (1 << 17)))
+#define CMD_END_BIT(a)      (FAIL(a) && (a->last_error & (1 << 18)))
+#define CMD_INDEX(a)        (FAIL(a) && (a->last_error & (1 << 19)))
+#define DATA_TIMEOUT(a)     (FAIL(a) && (a->last_error & (1 << 20)))
+#define DATA_CRC(a)         (FAIL(a) && (a->last_error & (1 << 21)))
+#define DATA_END_BIT(a)     (FAIL(a) && (a->last_error & (1 << 22)))
+#define CURRENT_LIMIT(a)    (FAIL(a) && (a->last_error & (1 << 23)))
+#define ACMD12_ERROR(a)     (FAIL(a) && (a->last_error & (1 << 24)))
+#define ADMA_ERROR(a)       (FAIL(a) && (a->last_error & (1 << 25)))
+#define TUNING_ERROR(a)     (FAIL(a) && (a->last_error & (1 << 26)))
 
 #define SD_VER_UNKNOWN      0
 #define SD_VER_1            1
@@ -1044,6 +1044,11 @@ int sd_card_init(struct block_device **dev)
 	int v2_later = 0;
 	if(TIMEOUT(ret))
         v2_later = 0;
+    else if(CMD_TIMEOUT(ret))
+    {
+        mmio_write(EMMC_BASE + EMMC_INTERRUPT, SD_ERR_MASK_CMD_TIMEOUT);
+        v2_later = 0;
+    }
     else if(FAIL(ret))
     {
         printf("SD: failure sending CMD8\n");
