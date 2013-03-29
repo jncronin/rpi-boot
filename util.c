@@ -47,3 +47,14 @@ uint8_t read_byte(uint8_t *buf, int offset)
 	return buf[offset];
 }
 
+// Support for BE to LE conversion
+uint32_t byte_swap(uint32_t in)
+{
+    uint32_t b0 = in & 0xff;
+    uint32_t b1 = (in >> 8) & 0xff;
+    uint32_t b2 = (in >> 16) & 0xff;
+    uint32_t b3 = (in >> 24) & 0xff;
+    uint32_t ret = (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;
+    return ret;
+}
+

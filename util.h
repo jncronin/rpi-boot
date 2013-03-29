@@ -31,5 +31,7 @@ uint8_t read_byte(uint8_t *buf, int offset);
 
 void *quick_memcpy(void *dest, void *src, size_t n);
 
+uint32_t byte_swap(uint32_t in);
+
 #endif
 

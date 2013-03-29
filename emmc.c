@@ -37,6 +37,7 @@
 #include "mmio.h"
 #include "block.h"
 #include "timer.h"
+#include "util.h"
 
 #ifdef DEBUG2
 #define EMMC_DEBUG
@@ -46,6 +47,9 @@
 
 // Enable 1.8V support
 #define SD_1_8V_SUPPORT
+
+// Enable 4-bit support
+#define SD_4BIT_DATA
 
 // Enable SDXC maximum performance mode
 // Requires 150 mA power so disabled on the RPi for now
@@ -69,6 +73,13 @@ static uint32_t hci_ver = 0;
 static uint32_t capabilities_0 = 0;
 static uint32_t capabilities_1 = 0;
 
+struct sd_scr
+{
+    uint32_t    scr[2];
+    uint32_t    sd_bus_widths;
+    int         sd_version;
+};
+
 struct emmc_block_dev
 {
 	struct block_device bd;
@@ -78,6 +89,8 @@ struct emmc_block_dev
 	uint32_t card_rca;
 	uint32_t last_interrupt;
 	uint32_t last_error;
+
+	struct sd_scr *scr;
 
 	int failed_voltage_switch;
 
@@ -215,6 +228,16 @@ struct emmc_block_dev
 #define ADMA_ERROR(a)       (FAIL(a) && (a->last_error & (a << 25)))
 #define TUNING_ERROR(a)     (FAIL(a) && (a->last_error & (a << 26)))
 
+#define SD_VER_UNKNOWN      0
+#define SD_VER_1            1
+#define SD_VER_1_1          2
+#define SD_VER_2            3
+#define SD_VER_3            4
+#define SD_VER_4            5
+
+static char *sd_versions[] = { "unknown", "1.0 and 1.01", "1.10",
+    "2.00", "3.0x", "4.xx" };
+
 #ifdef EMMC_DEBUG
 static char *err_irpts[] = { "CMD_TIMEOUT", "CMD_CRC", "CMD_END_BIT", "CMD_INDEX",
 	"DATA_TIMEOUT", "DATA_CRC", "DATA_END_BIT", "CURRENT_LIMIT",
@@ -230,7 +253,7 @@ static uint32_t sd_commands[] = {
     SD_CMD_INDEX(3) | SD_RESP_R6,
     SD_CMD_INDEX(4),
     SD_CMD_RESERVED(5),
-    SD_CMD_RESERVED(6),
+    SD_CMD_INDEX(6) | SD_RESP_R1,
     SD_CMD_INDEX(7) | SD_RESP_R1b,
     SD_CMD_INDEX(8) | SD_RESP_R7,
     SD_CMD_INDEX(9) | SD_RESP_R2,
@@ -342,7 +365,7 @@ static uint32_t sd_acommands[] = {
     SD_CMD_RESERVED(48),
     SD_CMD_RESERVED(49),
     SD_CMD_RESERVED(50),
-    SD_CMD_INDEX(51) | SD_RESP_R1,
+    SD_CMD_INDEX(51) | SD_RESP_R1 | SD_DATA_READ,
     SD_CMD_RESERVED(52),
     SD_CMD_RESERVED(53),
     SD_CMD_RESERVED(54),
@@ -362,6 +385,7 @@ static uint32_t sd_acommands[] = {
 #define ALL_SEND_CID            2
 #define SEND_RELATIVE_ADDR      3
 #define SET_DSR                 4
+#define SWITCH_FUNC             6
 #define SELECT_CARD             7
 #define DESELECT_CARD           7
 #define SELECT_DESELECT_CARD    7
@@ -377,7 +401,7 @@ static uint32_t sd_acommands[] = {
 #define READ_MULTIPLE_BLOCK     18
 #define SEND_TUNING_BLOCK       19
 #define SPEED_CLASS_CONTROL     20
-#define SET_CLOCK_COUNT         23
+#define SET_BLOCK_COUNT         23
 #define WRITE_BLOCK             24
 #define WRITE_MULTIPLE_BLOCK    25
 #define PROGRAM_CSD             27
@@ -441,6 +465,11 @@ static void sd_issue_command_int(struct emmc_block_dev *dev, uint32_t cmd_reg, u
 
     if(is_sdma)
     {
+        // Set stop at block gap request
+        uint32_t control0 = mmio_read(EMMC_BASE + EMMC_CONTROL0);
+        control0 |= (1 << 16);
+        mmio_write(EMMC_BASE + EMMC_CONTROL0, control0);
+
         // Set system address register (ARGUMENT2 in RPi)
 
         // We need to define a 4 kiB aligned buffer to use here
@@ -451,7 +480,8 @@ static void sd_issue_command_int(struct emmc_block_dev *dev, uint32_t cmd_reg, u
     // Set block size and block count
     // For now, block size = 512 bytes, block count = 1,
     //  host SDMA buffer boundary = 4 kiB
-    mmio_write(EMMC_BASE + EMMC_BLKSIZECNT, 0x00010200);
+    uint32_t blksizecnt = 0x00010000 | dev->block_size;
+    mmio_write(EMMC_BASE + EMMC_BLKSIZECNT, blksizecnt);
 
     // Set argument 1 reg
     mmio_write(EMMC_BASE + EMMC_ARG1, argument);
@@ -817,7 +847,11 @@ static void sd_issue_command(struct emmc_block_dev *dev, uint32_t command, uint3
             return;
         }
         dev->last_cmd = APP_CMD;
-        sd_issue_command_int(dev, sd_commands[APP_CMD], 0, timeout);
+
+        uint32_t rca = 0;
+        if(dev->card_rca)
+            rca = dev->card_rca << 16;
+        sd_issue_command_int(dev, sd_commands[APP_CMD], rca, timeout);
         if(dev->last_cmd_success)
         {
             dev->last_cmd = command | IS_APP_CMD;
@@ -911,9 +945,10 @@ int sd_card_init(struct block_device **dev)
 		return -1;
 	}
 #ifdef EMMC_DEBUG
-	printf("EMMC: control0: %08x, control1: %08x\n",
+	printf("EMMC: control0: %08x, control1: %08x, control2: %08x\n",
 			mmio_read(EMMC_BASE + EMMC_CONTROL0),
-			mmio_read(EMMC_BASE + EMMC_CONTROL1));
+			mmio_read(EMMC_BASE + EMMC_CONTROL1),
+            mmio_read(EMMC_BASE + EMMC_CONTROL2));
 #endif
 
 	// Read the capabilities registers
@@ -1027,6 +1062,7 @@ int sd_card_init(struct block_device **dev)
 #ifdef EMMC_DEBUG
             printf("SD: CMD8 response %08x\n", ret->last_r0);
 #endif
+            return -1;
         }
         else
             v2_later = 1;
@@ -1312,37 +1348,90 @@ int sd_card_init(struct block_device **dev)
 	controller_block_size |= 0x200;
 	mmio_write(EMMC_BASE + EMMC_BLKSIZECNT, controller_block_size);
 
-	// Set 4-bit transfer mode (ACMD6)
-	// All SD cards should support this (PLSS 5.6)
-	// See HCSS 3.4 for the algorithm
-#ifdef EMMC_4_BIT
-	uint32_t irpt_enable = 0xffffffff & (~0x100);
-	mmio_write(EMMC_BASE + EMMC_IRPT_MASK, irpt_enable);
-	mmio_write(EMMC_BASE + EMMC_ARG1, ret->card_rca << 16);
-	sd_send_command(SD_CMD_INDEX(55) | SD_CMD_CRCCHK_EN | SD_CMD_RSPNS_TYPE_48);
-	if(!sd_wait_response(500000, ret))
+	// Get the cards SCR register
+	ret->scr = (struct sd_scr *)malloc(sizeof(struct sd_scr));
+	ret->buf = &ret->scr->scr[0];
+	ret->block_size = 8;
+	ret->blocks_to_transfer = 1;
+	sd_issue_command(ret, SEND_SCR, 0, 500000);
+	ret->block_size = 512;
+	if(FAIL(ret))
 	{
-		printf("SD: no CMD55 response\n");
-		free(ret);
-		return -1;
+	    printf("SD: error sending SEND_SCR\n");
+	    free(ret->scr);
+        free(ret);
+	    return -1;
 	}
-	usleep(2000);
-	mmio_write(EMMC_BASE + EMMC_ARG1, 0x2);
-	sd_send_command(SD_CMD_INDEX(6) | SD_CMD_CRCCHK_EN | SD_CMD_RSPNS_TYPE_48);
-	if(!sd_wait_response(500000, ret))
-	{
-		printf("SD: no ACMD6 response\n");
-		free(ret);
-		return -1;
-	}
-	usleep(2000);
-	uint32_t control0 = mmio_read(EMMC_BASE + EMMC_CONTROL0);
-	control0 |= (1 << 1);
-	mmio_write(EMMC_BASE + EMMC_CONTROL0, control0);
-	mmio_write(EMMC_BASE + EMMC_IRPT_MASK, 0xffffffff);
+
+	// Determine card version
+	// Note that the SCR is big-endian
+	uint32_t scr0 = byte_swap(ret->scr->scr[0]);
+	ret->scr->sd_version = SD_VER_UNKNOWN;
+	uint32_t sd_spec = (scr0 >> (56 - 32)) & 0xf;
+	uint32_t sd_spec3 = (scr0 >> (47 - 32)) & 0x1;
+	uint32_t sd_spec4 = (scr0 >> (42 - 32)) & 0x1;
+	ret->scr->sd_bus_widths = (scr0 >> (48 - 32)) & 0xf;
+	if(sd_spec == 0)
+        ret->scr->sd_version = SD_VER_1;
+    else if(sd_spec == 1)
+        ret->scr->sd_version = SD_VER_1_1;
+    else if(sd_spec == 2)
+    {
+        if(sd_spec3 == 0)
+            ret->scr->sd_version = SD_VER_2;
+        else if(sd_spec3 == 1)
+        {
+            if(sd_spec4 == 0)
+                ret->scr->sd_version = SD_VER_3;
+            else if(sd_spec4 == 1)
+                ret->scr->sd_version = SD_VER_4;
+        }
+    }
+
+#ifdef EMMC_DEBUG
+    printf("SD: &scr: %08x\n", &ret->scr->scr[0]);
+    printf("SD: SCR[0]: %08x, SCR[1]: %08x\n", ret->scr->scr[0], ret->scr->scr[1]);;
+    printf("SD: SCR: %08x%08x\n", byte_swap(ret->scr->scr[0]), byte_swap(ret->scr->scr[1]));
+    printf("SD: SCR: version %s, bus_widths %01x\n", sd_versions[ret->scr->sd_version],
+           ret->scr->sd_bus_widths);
 #endif
 
-	printf("SD: found a valid SD card\n");
+    if(ret->scr->sd_bus_widths & 0x4)
+    {
+        // Set 4-bit transfer mode (ACMD6)
+        // See HCSS 3.4 for the algorithm
+#ifdef SD_4BIT_DATA
+#ifdef EMMC_DEBUG
+        printf("SD: switching to 4-bit data mode\n");
+#endif
+
+        // Disable card interrupt in host
+        uint32_t old_irpt_mask = mmio_read(EMMC_BASE + EMMC_IRPT_MASK);
+        uint32_t new_iprt_mask = old_irpt_mask & ~(1 << 8);
+        mmio_write(EMMC_BASE + EMMC_IRPT_MASK, new_iprt_mask);
+
+        // Send ACMD6 to change the card's bit mode
+        sd_issue_command(ret, SET_BUS_WIDTH, 0x2, 500000);
+        if(FAIL(ret))
+            printf("SD: switch to 4-bit data mode failed\n");
+        else
+        {
+            // Change bit mode for Host
+            uint32_t control0 = mmio_read(EMMC_BASE + EMMC_CONTROL0);
+            control0 |= 0x2;
+            mmio_write(EMMC_BASE + EMMC_CONTROL0, control0);
+
+            // Re-enable card interrupt in host
+            mmio_write(EMMC_BASE + EMMC_IRPT_MASK, old_irpt_mask);
+
+#ifdef EMMC_DEBUG
+                printf("SD: switch to 4-bit complete\n");
+#endif
+        }
+#endif
+    }
+
+	printf("SD: found a valid version %s SD card\n", sd_versions[ret->scr->sd_version]);
 #ifdef EMMC_DEBUG
 	printf("SD: setup successful (status %i)\n", status);
 #endif
