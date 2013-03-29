@@ -465,11 +465,6 @@ static void sd_issue_command_int(struct emmc_block_dev *dev, uint32_t cmd_reg, u
 
     if(is_sdma)
     {
-        // Set stop at block gap request
-        uint32_t control0 = mmio_read(EMMC_BASE + EMMC_CONTROL0);
-        control0 |= (1 << 16);
-        mmio_write(EMMC_BASE + EMMC_CONTROL0, control0);
-
         // Set system address register (ARGUMENT2 in RPi)
 
         // We need to define a 4 kiB aligned buffer to use here
