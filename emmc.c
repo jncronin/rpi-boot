@@ -1216,6 +1216,10 @@ int sd_card_init(struct block_device **dev)
 	// Send CMD8 to the card
 	// Voltage supplied = 0x1 = 2.7-3.6V (standard)
 	// Check pattern = 10101010b (as per PLSS 4.3.13) = 0xAA
+#ifdef EMMC_DEBUG
+    printf("SD: note a timeout error on the following command (CMD8) is normal "
+           "and expected if the SD card version is less than 2.0\n");
+#endif
 	sd_issue_command(ret, SEND_IF_COND, 0x1aa, 500000);
 	int v2_later = 0;
 	if(TIMEOUT(ret))
@@ -1248,6 +1252,10 @@ int sd_card_init(struct block_device **dev)
 
     // Here we are supposed to check the response to CMD5 (HCSS 3.6)
     // It only returns if the card is a SDIO card
+#ifdef EMMC_DEBUG
+    printf("SD: note that a timeout error on the following command (CMD5) is "
+           "normal and expected if the card is not a SDIO card.\n");
+#endif
     sd_issue_command(ret, IO_SET_OP_COND, 0, 10000);
     if(!TIMEOUT(ret))
     {
