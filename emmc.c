@@ -65,6 +65,11 @@
 // Enable card interrupts
 //#define SD_CARD_INTERRUPTS
 
+// The particular SDHCI implementation
+#define SDHCI_IMPLEMENTATION_GENERIC        0
+#define SDHCI_IMPLEMENTATION_BCM_2708       1
+#define SDHCI_IMPLEMENTATION                SDHCI_IMPLEMENTATION_BCM_2708
+
 static char driver_name[] = "emmc";
 static char device_name[] = "emmc0";	// We use a single device name as there is only
 					// one card slot in the RPi
@@ -107,6 +112,7 @@ struct emmc_block_dev
 	size_t block_size;
 	int use_sdma;
 	int card_removal;
+	uint32_t base_clock;
 };
 
 #define EMMC_BASE		0x20300000
@@ -429,6 +435,145 @@ static uint32_t sd_acommands[] = {
 #define SD_RESET_CMD            (1 << 25)
 #define SD_RESET_DAT            (1 << 26)
 #define SD_RESET_ALL            (1 << 24)
+
+// Get the current base clock rate in Hz
+#if SDHCI_IMPLEMENTATION == SDHCI_IMPLEMENTATION_BCM_2708
+#include "mbox.h"
+#endif
+
+static uint32_t sd_get_base_clock_hz()
+{
+    uint32_t base_clock;
+#if SDHCI_IMPLEMENTATION == SDHCI_IMPLEMENTATION_GENERIC
+    capabilities_0 = mmio_read(EMMC_BASE + EMMC_CAPABILITIES_0);
+    base_clock = ((capabilities_0 >> 8) & 0xff) * 1000000;
+#elif SDHCI_IMPLEMENTATION == SDHCI_IMPLEMENTATION_BCM_2708
+	uint32_t mb_addr = 0x40007000;		// 0x7000 in L2 cache coherent mode
+	volatile uint32_t *mailbuffer = (uint32_t *)mb_addr;
+
+	/* Get the base clock rate */
+	// set up the buffer
+	mailbuffer[0] = 8 * 4;		// size of this message
+	mailbuffer[1] = 0;			// this is a request
+
+	// next comes the first tag
+	mailbuffer[2] = 0x00030002;	// get clock rate tag
+	mailbuffer[3] = 0x8;		// value buffer size
+	mailbuffer[4] = 0x4;		// is a request, value length = 4
+	mailbuffer[5] = 0x1;		// clock id + space to return clock id
+	mailbuffer[6] = 0;			// space to return rate (in Hz)
+
+	// closing tag
+	mailbuffer[7] = 0;
+
+	// send the message
+	mbox_write(MBOX_PROP, mb_addr);
+
+	// read the response
+	mbox_read(MBOX_PROP);
+
+	if(mailbuffer[1] != MBOX_SUCCESS)
+	{
+	    printf("EMMC: property mailbox did not return a valid response.\n");
+	    return 0;
+	}
+
+	if(mailbuffer[5] != 0x1)
+	{
+	    printf("EMMC: property mailbox did not return a valid clock id.\n");
+	    return 0;
+	}
+
+	base_clock = mailbuffer[6];
+#else
+    printf("EMMC: get_base_clock_hz() is not implemented for this "
+           "architecture.\n");
+    return 0;
+#endif
+
+#ifdef EMMC_DEBUG
+    printf("EMMC: base clock rate is %i Hz\n", base_clock);
+#endif
+    return base_clock;
+}
+
+// Set the clock dividers to generate a target value
+static uint32_t sd_get_clock_divider(uint32_t base_clock, uint32_t target_rate)
+{
+    // TODO: implement use of preset value registers
+
+    uint32_t targetted_divisor = 0;
+    if(target_rate > base_clock)
+        targetted_divisor = 1;
+    else
+    {
+        targetted_divisor = base_clock / target_rate;
+        uint32_t mod = base_clock % target_rate;
+        if(mod)
+            targetted_divisor--;
+    }
+
+    // Decide on the clock mode to use
+
+    // Currently only 10-bit divided clock mode is supported
+
+    if(hci_ver >= 2)
+    {
+        // HCI version 3 or greater supports 10-bit divided clock mode
+        // This requires a power-of-two divider
+
+        // Find the first bit set
+        int divisor = -1;
+        for(int first_bit = 31; first_bit >= 0; first_bit--)
+        {
+            uint32_t bit_test = (1 << first_bit);
+            if(targetted_divisor & bit_test)
+            {
+                divisor = first_bit;
+                targetted_divisor &= ~bit_test;
+                if(targetted_divisor)
+                {
+                    // The divisor is not a power-of-two, increase it
+                    divisor++;
+                }
+                break;
+            }
+        }
+
+        if(divisor == -1)
+            divisor = 31;
+        if(divisor >= 32)
+            divisor = 31;
+
+        if(divisor != 0)
+            divisor = (1 << (divisor - 1));
+
+        if(divisor >= 0x400)
+            divisor = 0x3ff;
+
+        uint32_t freq_select = divisor & 0xff;
+        uint32_t upper_bits = (divisor >> 8) & 0x3;
+        uint32_t ret = (freq_select << 8) | (upper_bits << 6) | (0 << 5);
+
+#ifdef EMMC_DEBUG
+        int denominator = 1;
+        if(divisor != 0)
+            denominator = divisor * 2;
+        int actual_clock = base_clock / denominator;
+        printf("EMMC: base_clock: %i, target_rate: %i, divisor: %08x, "
+               "actual_clock: %i, ret: %08x\n", base_clock, target_rate,
+               divisor, actual_clock, ret);
+#endif
+
+        return ret;
+    }
+    else
+    {
+        printf("EMMC: unsupported host version\n");
+        return 0;
+    }
+
+}
 
 static int sd_reset_cmd()
 {
@@ -991,14 +1136,24 @@ int sd_card_init(struct block_device **dev)
 	// Clear control2
 	mmio_write(EMMC_BASE + EMMC_CONTROL2, 0);
 
+	// Get the base clock rate
+	uint32_t base_clock = sd_get_base_clock_hz();
+	if(base_clock == 0)
+	{
+	    printf("EMMC: assuming clock rate to be 100MHz\n");
+	    base_clock = 100000000;
+	}
+
 	// Set clock rate to something slow
 #ifdef EMMC_DEBUG
 	printf("EMMC: setting clock rate\n");
 #endif
 	control1 = mmio_read(EMMC_BASE + EMMC_CONTROL1);
 	control1 |= 1;			// enable clock
-	control1 |= 0x20;		// programmable clock mode
-	control1 |= (1 << 8);		// base clock * M/2
+
+	// Set to 12.5 Mhz
+	control1 |= sd_get_clock_divider(base_clock, 12500000);
+
 	control1 |= (7 << 16);		// data timeout = TMCLK * 2^10
 	mmio_write(EMMC_BASE + EMMC_CONTROL1, control1);
 	TIMEOUT_WAIT(mmio_read(EMMC_BASE + EMMC_CONTROL1) & 0x2, 0x1000000);
@@ -1048,6 +1203,7 @@ int sd_card_init(struct block_device **dev)
 	ret->bd.device_name = device_name;
 	ret->bd.block_size = 512;
 	ret->bd.read = sd_read;
+	ret->base_clock = base_clock;
 
 	// Send CMD0 to the card (reset to idle state)
 	sd_issue_command(ret, GO_IDLE_STATE, 0, 500000);
@@ -1471,6 +1627,7 @@ int sd_card_init(struct block_device **dev)
 	mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0xffffffff);
 
 	*dev = (struct block_device *)ret;
+
 	return 0;
 }
 
