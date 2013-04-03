@@ -65,6 +65,9 @@
 // Enable card interrupts
 //#define SD_CARD_INTERRUPTS
 
+// Enable EXPERIMENTAL (and possibly DANGEROUS) SD write support
+#define SD_WRITE_SUPPORT
+
 // The particular SDHCI implementation
 #define SDHCI_IMPLEMENTATION_GENERIC        0
 #define SDHCI_IMPLEMENTATION_BCM_2708       1
@@ -251,6 +254,7 @@ static char *err_irpts[] = { "CMD_TIMEOUT", "CMD_CRC", "CMD_END_BIT", "CMD_INDEX
 #endif
 
 int sd_read(struct block_device *, uint8_t *, size_t buf_size, uint32_t);
+int sd_write(struct block_device *, uint8_t *, size_t buf_size, uint32_t);
 
 static uint32_t sd_commands[] = {
     SD_CMD_INDEX(0),
@@ -575,9 +579,9 @@ static uint32_t sd_get_clock_divider(uint32_t base_clock, uint32_t target_rate)
 
 }
 
+// Reset the CMD line
 static int sd_reset_cmd()
 {
-    // Reset the CMD line
     uint32_t control1 = mmio_read(EMMC_BASE + EMMC_CONTROL1);
 	control1 |= SD_RESET_CMD;
 	mmio_write(EMMC_BASE + EMMC_CONTROL1, control1);
@@ -585,6 +589,21 @@ static int sd_reset_cmd()
 	if((mmio_read(EMMC_BASE + EMMC_CONTROL1) & SD_RESET_CMD) != 0)
 	{
 		printf("EMMC: CMD line did not reset properly\n");
+		return -1;
+	}
+	return 0;
+}
+
+// Reset the CMD line
+static int sd_reset_dat()
+{
+    uint32_t control1 = mmio_read(EMMC_BASE + EMMC_CONTROL1);
+	control1 |= SD_RESET_DAT;
+	mmio_write(EMMC_BASE + EMMC_CONTROL1, control1);
+	TIMEOUT_WAIT((mmio_read(EMMC_BASE + EMMC_CONTROL1) & SD_RESET_DAT) == 0, 1000000);
+	if((mmio_read(EMMC_BASE + EMMC_CONTROL1) & SD_RESET_DAT) != 0)
+	{
+		printf("EMMC: DAT line did not reset properly\n");
 		return -1;
 	}
 	return 0;
@@ -640,7 +659,14 @@ static void sd_issue_command_int(struct emmc_block_dev *dev, uint32_t cmd_reg, u
     // Set block size and block count
     // For now, block size = 512 bytes, block count = 1,
     //  host SDMA buffer boundary = 4 kiB
-    uint32_t blksizecnt = 0x00010000 | dev->block_size;
+    if(dev->blocks_to_transfer > 0xffff)
+    {
+        printf("SD: blocks_to_transfer too great (%i)\n",
+               dev->blocks_to_transfer);
+        dev->last_cmd_success = 0;
+        return;
+    }
+    uint32_t blksizecnt = dev->block_size | (dev->blocks_to_transfer << 16);
     mmio_write(EMMC_BASE + EMMC_BLKSIZECNT, blksizecnt);
 
     // Set argument 1 reg
@@ -932,6 +958,7 @@ static void sd_handle_interrupts(struct emmc_block_dev *dev)
         printf("SD: spurious buffer write ready interrupt\n");
 #endif
         reset_mask |= SD_BUFFER_WRITE_READY;
+        sd_reset_dat();
     }
 
     if(irpts & SD_BUFFER_READ_READY)
@@ -940,6 +967,7 @@ static void sd_handle_interrupts(struct emmc_block_dev *dev)
         printf("SD: spurious buffer read ready interrupt\n");
 #endif
         reset_mask |= SD_BUFFER_READ_READY;
+        sd_reset_dat();
     }
 
     if(irpts & SD_CARD_INSERTION)
@@ -1203,6 +1231,11 @@ int sd_card_init(struct block_device **dev)
 	ret->bd.device_name = device_name;
 	ret->bd.block_size = 512;
 	ret->bd.read = sd_read;
+#ifdef SD_WRITE_SUPPORT
+    ret->bd.write = sd_write;
+#endif
+    ret->bd.supports_multiple_block_read = 1;
+    ret->bd.supports_multiple_block_write = 1;
 	ret->base_clock = base_clock;
 
 	// Send CMD0 to the card (reset to idle state)
@@ -1639,26 +1672,24 @@ int sd_card_init(struct block_device **dev)
 	return 0;
 }
 
-int sd_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t block_no)
+static int sd_ensure_data_mode(struct emmc_block_dev *edev)
 {
-	// Check the status of the card
-	struct emmc_block_dev *edev = (struct emmc_block_dev *)dev;
 	if(edev->card_rca == 0)
 	{
 		// Try again to initialise the card
-		int ret = sd_card_init(&dev);
+		int ret = sd_card_init((struct block_device **)&edev);
 		if(ret != 0)
 			return ret;
 	}
 
 #ifdef EMMC_DEBUG
-	printf("SD: read() obtaining status register: ");
+	printf("SD: ensure_data_mode() obtaining status register: ");
 #endif
 
     sd_issue_command(edev, SEND_STATUS, edev->card_rca << 16, 500000);
     if(FAIL(edev))
     {
-        printf("SD: read() error sending CMD13\n");
+        printf("SD: ensure_data_mode() error sending CMD13\n");
         edev->card_rca = 0;
         return -1;
     }
@@ -1674,7 +1705,7 @@ int sd_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t bl
 		sd_issue_command(edev, SELECT_CARD, edev->card_rca << 16, 500000);
 		if(FAIL(edev))
 		{
-			printf("SD: read() no response from CMD17\n");
+			printf("SD: ensure_data_mode() no response from CMD17\n");
 			edev->card_rca = 0;
 			return -1;
 		}
@@ -1685,15 +1716,18 @@ int sd_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t bl
 		sd_issue_command(edev, STOP_TRANSMISSION, 0, 500000);
 		if(FAIL(edev))
 		{
-			printf("SD: read() no response from CMD12\n");
+			printf("SD: ensure_data_mode() no response from CMD12\n");
 			edev->card_rca = 0;
 			return -1;
 		}
+
+		// Reset the data circuit
+		sd_reset_dat();
 	}
 	else if(cur_state != 4)
 	{
 		// Not in the transfer state - re-initialise
-		int ret = sd_card_init(&dev);
+		int ret = sd_card_init((struct block_device **)&edev);
 		if(ret != 0)
 			return ret;
 	}
@@ -1702,12 +1736,12 @@ int sd_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t bl
 	if(cur_state != 4)
 	{
 #ifdef EMMC_DEBUG
-		printf("SD: read() rechecking status: ");
+		printf("SD: ensure_data_mode() rechecking status: ");
 #endif
         sd_issue_command(edev, SEND_STATUS, edev->card_rca << 16, 500000);
         if(FAIL(edev))
 		{
-			printf("SD: read() no response from CMD13\n");
+			printf("SD: ensure_data_mode() no response from CMD13\n");
 			edev->card_rca = 0;
 			return -1;
 		}
@@ -1720,40 +1754,74 @@ int sd_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t bl
 
 		if(cur_state != 4)
 		{
-			printf("SD: unable to initialise SD card for "
-					"reading (state %i)\n", cur_state);
+			printf("SD: unable to initialise SD card to "
+					"data mode (state %i)\n", cur_state);
 			edev->card_rca = 0;
 			return -1;
 		}
 	}
 
-#ifdef EMMC_DEBUG
-	printf("SD: read() card ready, reading from block %u\n", block_no);
+	return 0;
+}
+
+#ifdef SDMA_SUPPORT
+// We only support DMA transfers to buffers aligned on a 4 kiB boundary
+static int sd_suitable_for_dma(void *buf)
+{
+    if((uintptr_t)buf & 0xfff)
+        return 0;
+    else
+        return 1;
+}
 #endif
 
+static int sd_do_data_command(struct emmc_block_dev *edev, int is_write, uint8_t *buf, size_t buf_size, uint32_t block_no)
+{
 	// PLSS table 4.20 - SDSC cards use byte addresses rather than block addresses
 	if(!edev->card_supports_sdhc)
 		block_no *= 512;
 
 	// This is as per HCSS 3.7.2.1
-	// Note that block size and block count are already set
-
-	// Send the read single block command
-	edev->blocks_to_transfer = 1;
-	edev->buf = buf;
 	if(buf_size < edev->block_size)
 	{
-	    printf("SD: read() called with buffer size (%i) less than "
+	    printf("SD: do_data_command() called with buffer size (%i) less than "
             "block size (%i)\n", buf_size, edev->block_size);
         return -1;
 	}
+
+	edev->blocks_to_transfer = buf_size / edev->block_size;
+	if(buf_size % edev->block_size)
+	{
+	    printf("SD: do_data_command() called with buffer size (%i) not an "
+            "exact multiple of block size (%i)\n", buf_size, edev->block_size);
+        return -1;
+	}
+	edev->buf = buf;
+
+	// Decide on the command to use
+	int command;
+	if(is_write)
+	{
+	    if(edev->blocks_to_transfer > 1)
+            command = WRITE_MULTIPLE_BLOCK;
+        else
+            command = WRITE_BLOCK;
+	}
+	else
+    {
+        if(edev->blocks_to_transfer > 1)
+            command = READ_MULTIPLE_BLOCK;
+        else
+            command = READ_SINGLE_BLOCK;
+    }
+
 	int retry_count = 0;
 	int max_retries = 3;
 	while(retry_count < max_retries)
 	{
 #ifdef SDMA_SUPPORT
 	    // use SDMA for the first try only
-	    if(retry_count == 0)
+	    if((retry_count == 0) && sd_suitable_for_dma(buf))
             edev->use_sdma = 1;
         else
         {
@@ -1766,13 +1834,13 @@ int sd_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t bl
         edev->use_sdma = 0;
 #endif
 
-        sd_issue_command(edev, READ_SINGLE_BLOCK, block_no, 5000000);
+        sd_issue_command(edev, command, block_no, 5000000);
 
         if(SUCCESS(edev))
             break;
         else
         {
-            printf("SD: error sending READ_SINGLE_BLOCK command, ");
+            printf("SD: error sending CMD%i, ", command);
             printf("error = %08x.  ", edev->last_error);
             retry_count++;
             if(retry_count < max_retries)
@@ -1787,10 +1855,50 @@ int sd_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t bl
         return -1;
     }
 
+    return 0;
+}
+
+int sd_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t block_no)
+{
+	// Check the status of the card
+	struct emmc_block_dev *edev = (struct emmc_block_dev *)dev;
+    if(sd_ensure_data_mode(edev) != 0)
+        return -1;
+
+#ifdef EMMC_DEBUG
+	printf("SD: read() card ready, reading from block %u\n", block_no);
+#endif
+
+    if(sd_do_data_command(edev, 0, buf, buf_size, block_no) < 0)
+        return -1;
+
 #ifdef EMMC_DEBUG
 	printf("SD: data read successful\n");
 #endif
 
 	return buf_size;
 }
+
+#ifdef SD_WRITE_SUPPORT
+int sd_write(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t block_no)
+{
+	// Check the status of the card
+	struct emmc_block_dev *edev = (struct emmc_block_dev *)dev;
+    if(sd_ensure_data_mode(edev) != 0)
+        return -1;
+
+#ifdef EMMC_DEBUG
+	printf("SD: write() card ready, reading from block %u\n", block_no);
+#endif
+
+    if(sd_do_data_command(edev, 1, buf, buf_size, block_no) < 0)
+        return -1;
+
+#ifdef EMMC_DEBUG
+	printf("SD: write read successful\n");
+#endif
+
+	return buf_size;
+}
+#endif
 

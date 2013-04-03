@@ -48,6 +48,7 @@ struct mbr_block_dev {
 static char driver_name[] = "mbr";
 
 static int mbr_read(struct block_device *, uint8_t *buf, size_t buf_size, uint32_t starting_block);
+static int mbr_write(struct block_device *, uint8_t *buf, size_t buf_size, uint32_t starting_block);
 
 int read_mbr(struct block_device *parent, struct block_device ***partitions, int *part_count)
 {
@@ -66,7 +67,7 @@ int read_mbr(struct block_device *parent, struct block_device ***partitions, int
 #ifdef MBR_DEBUG
 	printf("MBR: reading block 0 from device %s\n", parent->device_name);
 #endif
-	
+
 	int ret = block_read(parent, block_0, 512, 0);
 	if(ret < 0)
 	{
@@ -101,6 +102,32 @@ int read_mbr(struct block_device *parent, struct block_device ***partitions, int
 	printf("\n");
 #endif
 
+    // If parent block size is not 512, we have to coerce start_block
+    //  and blocks to fit
+    if(parent->block_size < 512)
+    {
+        // We do not support parent device block sizes < 512
+        printf("MBR: parent block device is too small (%i)\n", parent->block_size);
+        return -1;
+    }
+
+    uint32_t block_size_adjust = parent->block_size / 512;
+    if(parent->block_size % 512)
+    {
+        // We do not support parent device block sizes that are not a
+        //  multiple of 512
+        printf("MBR: parent block size is not a multiple of 512 (%i)\n",
+               parent->block_size);
+        return -1;
+    }
+
+#ifdef MBR_DEBUG
+    if(block_size_adjust > 1)
+    {
+        printf("MBR: block_size_adjust: %i\n", block_size_adjust);
+    }
+#endif
+
 	/* Load the partitions */
 	struct block_device **parts =
 		(struct block_device **)malloc(4 * sizeof(struct block_device *));
@@ -125,17 +152,39 @@ int read_mbr(struct block_device *parent, struct block_device ***partitions, int
 			d->bd.device_id[0] = i;
 			d->bd.dev_id_len = 1;
 			d->bd.read = mbr_read;
-			d->bd.block_size = 512;
+			if(parent->write)
+                d->bd.write = mbr_write;
+			d->bd.block_size = parent->block_size;
+			d->bd.supports_multiple_block_read = parent->supports_multiple_block_read;
+			d->bd.supports_multiple_block_write = parent->supports_multiple_block_write;
 			d->part_no = i;
 			d->part_id = block_0[p_offset + 4];
 			d->start_block = read_word(block_0, p_offset + 8);
 			d->blocks = read_word(block_0, p_offset + 12);
 			d->parent = parent;
-			
+
+            // Adjust start_block and blocks to the parent block size
+			if(d->start_block % block_size_adjust)
+			{
+			    printf("MBR: partition number %i does not start on a block "
+                    "boundary (%i).\n", d->part_no, d->start_block);
+                return -1;
+			}
+			d->start_block /= block_size_adjust;
+
+			if(d->blocks % block_size_adjust)
+			{
+			    printf("MBR: partition number %i does not have a length "
+                    "that is an exact multiple of the block length (%i).\n",
+                    d->part_no, d->start_block);
+                return -1;
+			}
+			d->blocks /= block_size_adjust;
+
 			parts[cur_p++] = (struct block_device *)d;
 #ifdef MBR_DEBUG
 			printf("MBR: partition number %i (%s) of type %x, start sector %u, "
-					"sector count %u, p_offset %03x\n", 
+					"sector count %u, p_offset %03x\n",
 					d->part_no, d->bd.device_name, d->part_id,
 					d->start_block, d->blocks, p_offset);
 #endif
@@ -176,16 +225,15 @@ int read_mbr(struct block_device *parent, struct block_device ***partitions, int
 int mbr_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t starting_block)
 {
 	struct block_device *parent = ((struct mbr_block_dev *)dev)->parent;
-	// Check the block size of the partition is equal that of the underlying device
-	if(dev->block_size != parent->block_size)
-	{
-		printf("MBR: read() error - block size differs (%i vs %i)\n",
-				dev->block_size,
-				parent->block_size);
-		return -1;
-	}
 
 	return parent->read(parent, buf, buf_size,
 			starting_block + ((struct mbr_block_dev *)dev)->start_block);
 }
 
+int mbr_write(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t starting_block)
+{
+    struct block_device *parent = ((struct mbr_block_dev *)dev)->parent;
+
+    return parent->write(parent, buf, buf_size,
+                         starting_block + ((struct mbr_block_dev *)dev)->start_block);
+}
