@@ -19,12 +19,53 @@
  * THE SOFTWARE.
  */
 
-#ifndef CONSOLE_H
-#define CONSOLE_H
+#include "output.h"
+#include "uart.h"
+#include "console.h"
 
-void clear();
-void draw_char(char c, int x, int y, uint32_t fore, uint32_t back);
-int console_putc(int c);
+rpi_boot_output_state ostate;
 
-#endif
+rpi_boot_output_state output_get_state()
+{
+    return ostate;
+}
 
+void output_restore_state(rpi_boot_output_state state)
+{
+    ostate = state;
+}
+
+void output_disable_fb()
+{
+    ostate &= ~RPIBOOT_OUTPUT_FB;
+}
+
+void output_enable_fb()
+{
+    ostate |= RPIBOOT_OUTPUT_FB;
+}
+
+void output_disable_uart()
+{
+    ostate &= ~RPIBOOT_OUTPUT_UART;
+}
+
+void output_enable_uart()
+{
+    ostate |= RPIBOOT_OUTPUT_UART;
+}
+
+void output_init()
+{
+    ostate = 0;
+}
+
+int split_putc(int c)
+{
+    int ret = 0;
+    if(ostate & RPIBOOT_OUTPUT_UART)
+        ret = uart_putc(c);
+    if(ostate & RPIBOOT_OUTPUT_FB)
+        ret = console_putc(c);
+    return ret;
+}

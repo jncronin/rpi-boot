@@ -19,12 +19,25 @@
  * THE SOFTWARE.
  */
 
-#ifndef CONSOLE_H
-#define CONSOLE_H
+#ifndef OUTPUT_H
+#define OUTPUT_H
 
-void clear();
-void draw_char(char c, int x, int y, uint32_t fore, uint32_t back);
-int console_putc(int c);
+#include <stdint.h>
 
+typedef uint32_t rpi_boot_output_state;
+
+#ifdef BUILDING_RPIBOOT
+rpi_boot_output_state output_get_state();
+void output_restore_state(rpi_boot_output_state state);
+void output_enable_fb();
+void output_disable_fb();
+void output_enable_uart();
+void output_disable_uart();
+void output_init();
+int split_putc(int c);
 #endif
 
+#define RPIBOOT_OUTPUT_FB      (1 << 0)
+#define RPIBOOT_OUTPUT_UART    (1 << 1)
+
+#endif

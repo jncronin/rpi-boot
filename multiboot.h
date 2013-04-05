@@ -1,24 +1,3 @@
-/* Copyright (C) 2013 by John Cronin <jncronin@tysos.org>
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
-
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
-
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- * THE SOFTWARE.
- */
-
 /* multiboot.h - Multiboot header file. */
 /* Copyright (C) 1999,2003,2007,2008,2009  Free Software Foundation, Inc.
  *
@@ -53,6 +32,7 @@
 #ifdef __ARMEL__
 #include <stddef.h>
 #include "timer.h"
+#include "output.h"
 #ifndef FILE
 #ifdef VFS_H
 #define FILE struct vfs_file
@@ -96,6 +76,14 @@ struct multiboot_arm_functions
 
     // Timer functions
     int (*usleep)(useconds_t usec);
+
+    // Functions for controlling output to framebuffer or serial
+    rpi_boot_output_state (*output_get_state)();
+    void (*output_restore_state)(rpi_boot_output_state state);
+    void (*output_enable_fb)();
+    void (*output_disable_fb)();
+    void (*output_enable_uart)();
+    void (*output_disable_uart)();
 };
 
 #endif // __ARMEL__
@@ -156,20 +144,20 @@ typedef struct multiboot_info
 #else
   uint32_t drives_addr;
 #endif
-     
+
   /* ROM configuration table */
   uint32_t config_table;
-     
+
   /* Boot Loader Name */
 #ifdef __ARMEL__
   char *boot_loader_name;
 #else
   uint32_t boot_loader_name;
 #endif
-     
+
   /* APM table */
   uint32_t apm_table;
-     
+
   /* Video */
 #ifdef __ARMEL__
   uint32_t fb_addr;

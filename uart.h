@@ -23,10 +23,13 @@
 #define UART_H
 
 #include <stdint.h>
+#include "timer.h"
 
 void uart_init();
 int uart_putc(int byte);
 void uart_puts(const char *str);
+int uart_getc();
+int uart_getc_timeout(useconds_t timeout);
 
 #endif
 

@@ -32,6 +32,7 @@
 #include "memchunk.h"
 #include "usb.h"
 #include "dwc_usb.h"
+#include "output.h"
 
 #define UNUSED(x) (void)(x)
 
@@ -119,7 +120,6 @@ void atag_cb(struct atag *tag)
 	puts("");
 }
 
-void console_test();
 int sd_card_init(struct block_device **dev);
 int read_mbr(struct block_device *, struct block_device ***, int *);
 int dwc_usb_init(struct usb_hcd **dev, uint32_t base);
@@ -127,16 +127,9 @@ int dwc_usb_init(struct usb_hcd **dev, uint32_t base);
 extern int (*stdout_putc)(int);
 extern int (*stderr_putc)(int);
 extern int (*stream_putc)(int, FILE*);
-extern int console_putc(int);
 extern int def_stream_putc(int, FILE*);
 
 int cfg_parse(char *buf);
-
-int split_putc(int c)
-{
-	uart_putc(c);
-	return console_putc(c);
-}
 
 void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 {
@@ -146,9 +139,12 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 	UNUSED(boot_dev);
 
 	// First use the serial console
-	stdout_putc = uart_putc;
-	stderr_putc = uart_putc;
+	stdout_putc = split_putc;
+	stderr_putc = split_putc;
 	stream_putc = def_stream_putc;
+
+	output_init();
+	output_enable_uart();
 
 	// Dump ATAGS
 	parse_atags(atags, atag_cb);
@@ -163,7 +159,7 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 	}
 
 	// Switch to the framebuffer for output
-	stdout_putc = split_putc;
+	output_enable_fb();
 
 	printf("Welcome to Rpi bootloader\n");
 	printf("Compiled on %s at %s\n", __DATE__, __TIME__);

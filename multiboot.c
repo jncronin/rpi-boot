@@ -33,6 +33,7 @@
 #include "console.h"
 #include "fb.h"
 #include "timer.h"
+#include "output.h"
 
 #ifdef DEBUG2
 #define MULTIBOOT_DEBUG
@@ -102,7 +103,13 @@ struct multiboot_arm_functions funcs =
 	.opendir = opendir,
 	.readdir = readdir,
 	.closedir = closedir,
-	.usleep = usleep
+	.usleep = usleep,
+	.output_get_state = output_get_state,
+	.output_restore_state = output_restore_state,
+	.output_enable_fb = output_enable_fb,
+	.output_disable_fb = output_disable_fb,
+	.output_enable_uart = output_enable_uart,
+	.output_disable_uart = output_disable_uart
 };
 
 static char *read_line(char **buf)
@@ -141,10 +148,10 @@ static void split_string(char *str, char **method, char **args)
 	// state = 	0 - reading spaces before method
 	// 		1 - reading method
 	// 		2 - reading spaces before argument
-	
+
 	*method = empty_string;
 	*args = empty_string;
-	
+
 	while(*p)
 	{
 		if(*p == ' ')
@@ -214,7 +221,7 @@ int cfg_parse(char *buf)
 		}
 
 		if(!found)
-			printf("cfg_parse: unknown method %s\n", method);	
+			printf("cfg_parse: unknown method %s\n", method);
 	}
 
 	return 0;
@@ -306,7 +313,7 @@ int method_multiboot(char *args)
 		mbinfo->flags |= (1 << 0);
 		mbinfo->flags |= (1 << 6);
 	}
-	
+
 
 	// Load the file
 	if(mboot->flags & (1 << 16))
@@ -620,7 +627,7 @@ int method_boot(char *args)
 		// Do a multiboot load
 		printf("BOOT: multiboot load\n");
 
-		void (*e_point)(uint32_t, uint32_t, uint32_t, uint32_t) = 
+		void (*e_point)(uint32_t, uint32_t, uint32_t, uint32_t) =
 			(void(*)(uint32_t, uint32_t, uint32_t, uint32_t))entry_addr;
 		e_point(MULTIBOOT_BOOTLOADER_MAGIC, (uint32_t)mbinfo,
 				_arm_m_type, (uint32_t)&funcs);
@@ -629,8 +636,8 @@ int method_boot(char *args)
 	{
 		// Do a simple jump
 		printf("BOOT: non-multiboot load\n");
-		
-		void (*e_point)(uint32_t, uint32_t, uint32_t, uint32_t) = 
+
+		void (*e_point)(uint32_t, uint32_t, uint32_t, uint32_t) =
 			(void(*)(uint32_t, uint32_t, uint32_t, uint32_t))entry_addr;
 		e_point(0x0, _arm_m_type, _atags, (uint32_t)&funcs);
 	}
@@ -641,7 +648,7 @@ int method_kernel(char *args)
 {
 	char *file, *name;
 	split_string(args, &file, &name);
-	
+
 	FILE *fp = fopen(file, "r");
 	if(!fp)
 	{
@@ -661,7 +668,7 @@ int method_kernel(char *args)
 	}
 
 	int kernel_type = 0;	// 0 = flat binary, 1 = ELF, 2 = linux
-	
+
 	// If the first 4 bytes are the ELF magic number, assume its ELF
 	if((bytes_read >= 4) && (first_bytes[0] == 0x7f) &&
 			(first_bytes[1] == 'E') && (first_bytes[2] == 'L')
@@ -828,11 +835,11 @@ void atag_cb(struct atag *tag)
 		uint32_t start = tag->u.mem.start;
 		uint32_t size = tag->u.mem.size;
 		uint32_t end = start + size;
-		
+
 		// mem_upper is number of kiB beyond 1 MiB
 		if((start < 0x100000) && (end > 0x100000))
 			mbinfo->mem_upper = end / 1024;
-			
+
 		mbinfo->mmap_length += 24;
 	}
 }

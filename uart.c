@@ -81,6 +81,22 @@ int uart_putc(int byte)
 	return byte;
 }
 
+int uart_getc()
+{
+    while(mmio_read(UART0_FR) & (1 << 4))
+        usleep(2000);
+    return mmio_read(UART0_DR) & 0xff;
+}
+
+int uart_getc_timeout(useconds_t timeout)
+{
+    TIMEOUT_WAIT(mmio_read(UART0_FR) & (1 << 4), timeout);
+    if(mmio_read(UART0_FR) & (1 << 4))
+        return mmio_read(UART0_DR) & 0xff;
+    else
+        return -1;
+}
+
 void uart_puts(const char *str)
 {
 	while(*str)
