@@ -46,10 +46,17 @@
 // Configuration options
 
 // Enable 1.8V support
-#define SD_1_8V_SUPPORT
+//#define SD_1_8V_SUPPORT
 
 // Enable 4-bit support
 #define SD_4BIT_DATA
+
+// SD Clock Frequencies (in Hz)
+#define SD_CLOCK_ID         400000
+#define SD_CLOCK_NORMAL     25000000
+#define SD_CLOCK_HIGH       50000000
+#define SD_CLOCK_100        100000000
+#define SD_CLOCK_208        208000000
 
 // Enable SDXC maximum performance mode
 // Requires 150 mA power so disabled on the RPi for now
@@ -577,6 +584,44 @@ static uint32_t sd_get_clock_divider(uint32_t base_clock, uint32_t target_rate)
         return 0;
     }
 
+}
+
+// Switch the clock rate whilst running
+static int sd_switch_clock_rate(uint32_t base_clock, uint32_t target_rate)
+{
+    // Decide on an appropriate divider
+    uint32_t divider = sd_get_clock_divider(base_clock, target_rate);
+    if(divider == 0)
+    {
+        printf("EMMC: couldn't get a valid divider for target rate %i Hz\n",
+               target_rate);
+        return -1;
+    }
+
+    // Wait for the command inhibit (CMD and DAT) bits to clear
+    while(mmio_read(EMMC_BASE + EMMC_STATUS) & 0x3)
+        usleep(1000);
+
+    // Set the SD clock off
+    uint32_t control1 = mmio_read(EMMC_BASE + EMMC_CONTROL1);
+    control1 &= ~(1 << 2);
+    mmio_write(EMMC_BASE + EMMC_CONTROL1, control1);
+    usleep(2000);
+
+    // Write the new divider
+    control1 |= divider;
+    mmio_write(EMMC_BASE + EMMC_CONTROL1, control1);
+    usleep(2000);
+
+    // Enable the SD clock
+    control1 |= (1 << 2);
+    mmio_write(EMMC_BASE + EMMC_CONTROL1, control1);
+    usleep(2000);
+
+#ifdef EMMC_DEBUG
+    printf("EMMC: successfully set clock rate to %i Hz\n", target_rate);
+#endif
+    return 0;
 }
 
 // Reset the CMD line
@@ -1179,8 +1224,8 @@ int sd_card_init(struct block_device **dev)
 	control1 = mmio_read(EMMC_BASE + EMMC_CONTROL1);
 	control1 |= 1;			// enable clock
 
-	// Set to 12.5 Mhz
-	control1 |= sd_get_clock_divider(base_clock, 12500000);
+	// Set to identification frequency (400 kHz)
+	control1 |= sd_get_clock_divider(base_clock, SD_CLOCK_ID);
 
 	control1 |= (7 << 16);		// data timeout = TMCLK * 2^10
 	mmio_write(EMMC_BASE + EMMC_CONTROL1, control1);
@@ -1448,7 +1493,7 @@ int sd_card_init(struct block_device **dev)
 	    if(dat30 != 0xf)
 	    {
 #ifdef EMMC_DEBUG
-            printf("SD: DAT[3:0] did not settle to 1111b");
+            printf("SD: DAT[3:0] did not settle to 1111b (%01x)\n", dat30);
 #endif
 	        ret->failed_voltage_switch = 1;
 	        return sd_card_init((struct block_device **)&ret);
@@ -1538,6 +1583,10 @@ int sd_card_init(struct block_device **dev)
 #ifdef EMMC_DEBUG
 	printf("SD: RCA: %04x\n", ret->card_rca);
 #endif
+
+
+    // Switch to 25 MHz speed
+    sd_switch_clock_rate(base_clock, SD_CLOCK_NORMAL);
 
 	// Now select the card (toggles it to transfer state)
 	sd_issue_command(ret, SELECT_CARD, ret->card_rca << 16, 500000);
