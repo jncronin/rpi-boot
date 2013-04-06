@@ -65,6 +65,7 @@
                             there are no entries within the directory)
         1                   Path not found
         2                   EOF
+        3                   CRC error in request
 
     File/directory properties:
 
@@ -76,20 +77,21 @@
     cmd_id  Compatibility   Function
 
     0       RBTIN_V2_REQ    ID and query functionality
-                            <options> is empty
-                            Returns <magic><lsb32 functions><crc> if the server
-                            is a valid v2 server.  Functions is a bit-mask
-                            specifying support for each function number (1 to
-                            support).  For example, if a server supports
-                            functions 0-4 inclusive, this will be 11111b = 0x1f
+                            <options> is <crc>
+                            Returns <magic><lsb32 error_code><lsb32 functions>
+                            <crc> if the server is a valid v2 server.
+                            Functions is a bit-mask specifying support for each
+                            function number (1 to support).  For example, if a
+                            server supports functions 0-4 inclusive, this will
+                            be 11111b = 0x1f.
 
     1       RBTIN_V2_SPEC   Read directory entries
                             <options> is <string dir_name><crc>
                             Returns the entries within the specified directory
                             Returns:
-                                <magic><lsb32 0><lsb32 error_code><crc>
+                                <magic><lsb32 error_code><lsb32 0><crc>
                                     - if no entries or error
-                                <magic><lsb32 entry_count><byte 0>
+                                <magic><lsb32 0><lsb32 entry_count><byte 0>
                                     <dir_entry 0><dir_entry 1>...<dir_entry n>
                                     <crc>
                                     - if success return a list of the entries
@@ -103,10 +105,10 @@
                             Reads the part of a file starting at address start
                             and of length 'length'
                             Returns:
-                                <magic><lsb32 0><lsb32 error_code><crc>
+                                <magic><lsb32 error_code><lsb32 0><crc>
                                     - if error
-                                <magic><lsb32 bytes_read><byte 0><byte 1>...
-                                <byte n><crc>
+                                <magic><lsb32 0><lsb32 bytes_read><byte 0>
+                                <byte 1>...<byte n><crc>
                                     - if success
 
     3       RBTIN_V1        Send the default kernel (all of it)
