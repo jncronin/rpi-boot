@@ -109,4 +109,24 @@ crc32(const void *buf, size_t size)
 	return crc ^ ~0U;
 }
 
+// This is added to support incrementally building the crc from several
+//  buffers
+uint32_t crc32_start()
+{
+    return ~0U;
+}
+
+uint32_t crc32_append(uint32_t crc, const void *buf, size_t size)
+{
+    const uint8_t *p = buf;
+    while (size--)
+        crc = crc32_tab[(crc ^ *p++) & 0xFF] ^ (crc >> 8);
+    return crc;
+}
+
+uint32_t crc32_finish(uint32_t crc)
+{
+    return crc ^ ~0U;
+}
+
 // The rest of this file has been stripped

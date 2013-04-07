@@ -90,8 +90,8 @@ int uart_getc()
 
 int uart_getc_timeout(useconds_t timeout)
 {
-    TIMEOUT_WAIT(mmio_read(UART0_FR) & (1 << 4), timeout);
-    if(mmio_read(UART0_FR) & (1 << 4))
+    TIMEOUT_WAIT((mmio_read(UART0_FR) & (1 << 4)) == 0, timeout);
+    if((mmio_read(UART0_FR) & (1 << 4)) == 0)
         return mmio_read(UART0_DR) & 0xff;
     else
         return -1;

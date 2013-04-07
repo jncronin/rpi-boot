@@ -40,6 +40,8 @@
                         <lsb16 length><byte 0><byte 1>...<byte n>
                     Note not null-terminated and string is in UTF-8 format
     <magic>         The four bytes <byte 0x31><byte 0x41><byte 0x59><byte 0x27>
+    <msg_length>    The length of the response sent as a <lsb32> - this is
+                        the length minus the length of <magic> and <crc>
     <crc>           A CRC-32 checksum of the command or response transmitted as
                     a <msb32>.  If this fails the command should be re-sent.
                         The particular CRC polynomial is 0x04C11DB7 as per
@@ -63,9 +65,9 @@
     Error codes:
         0                   Success (returned in error response to cmd_id 1 if
                             there are no entries within the directory)
-        1                   Path not found
-        2                   EOF
-        3                   CRC error in request
+        -1                  Path not found
+        -2                  EOF
+        -3                  CRC error in request
 
     File/directory properties:
 
@@ -78,8 +80,9 @@
 
     0       RBTIN_V2_REQ    ID and query functionality
                             <options> is <crc>
-                            Returns <magic><lsb32 error_code><lsb32 functions>
-                            <crc> if the server is a valid v2 server.
+                            Returns <magic><msg_length><lsb32 error_code>
+                            <lsb32 functions><crc> if the server is a valid v2
+                            server.
                             Functions is a bit-mask specifying support for each
                             function number (1 to support).  For example, if a
                             server supports functions 0-4 inclusive, this will
@@ -89,11 +92,12 @@
                             <options> is <string dir_name><crc>
                             Returns the entries within the specified directory
                             Returns:
-                                <magic><lsb32 error_code><lsb32 0><crc>
-                                    - if no entries or error
-                                <magic><lsb32 0><lsb32 entry_count><byte 0>
-                                    <dir_entry 0><dir_entry 1>...<dir_entry n>
+                                <magic><msg_length><lsb32 error_code><lsb32 0>
                                     <crc>
+                                    - if no entries or error
+                                <magic><msg_length><lsb32 0><lsb32 entry_count>
+                                    <byte 0><dir_entry 0><dir_entry 1>...
+                                    <dir_entry n><crc>
                                     - if success return a list of the entries
                                     - the <byte 0> defines the dir_entry
                                     version and can be changed in future
@@ -105,10 +109,11 @@
                             Reads the part of a file starting at address start
                             and of length 'length'
                             Returns:
-                                <magic><lsb32 error_code><lsb32 0><crc>
+                                <magic><msg_length><lsb32 error_code><lsb32 0>
+                                <crc>
                                     - if error
-                                <magic><lsb32 0><lsb32 bytes_read><byte 0>
-                                <byte 1>...<byte n><crc>
+                                <magic><msg_length><lsb32 0><lsb32 bytes_read>
+                                <byte 0><byte 1>...<byte n><crc>
                                     - if success
 
     3       RBTIN_V1        Send the default kernel (all of it)
@@ -119,7 +124,7 @@
     4       RBTIN_V2_SPEC   Display a string on the server console
                             <options> is <string message><crc>
                             Returns:
-                                <magic><lsb32 error_code><crc>
+                                <magic><msg_length><lsb32 error_code><crc>
 */
 
 /* Specifics of the rpi_boot implementation:
@@ -141,10 +146,297 @@
     If v1, and any other file is requested, we return error code ENOENT
 */
 
+#include <string.h>
 #include "fs.h"
+#include "output.h"
+#include "uart.h"
+#include "crc32.h"
+#include "block.h"
+
+#define SUCCESS         0
+#define PATH_NOT_FOUND  -1
+#define EOF             -2
+#define CRC_ERROR       -3
+#define INVALID_CMD     -4
+#define UNSUPPORTED_CMD -5
+#define TIMEOUT         -6
+#define INVALID_MAGIC   -7
+
+#define MAX_RETRIES     3
+#define UART_TIMEOUT    10000
+#define MAGIC           0x31415927
+
+#define CLIENT_CAPABILITIES     0x1f
+
+#define BYTE(num, idx)      (((num) >> ((idx) * 8)) & 0xff)
+#define CHECK(resp)         if((resp) == -1) { ret = TIMEOUT; goto cleanup; }
+
+static uint32_t server_capabilities = 9;    // assume server can interpret
+                                            // cmds 0 and 3
+static uint32_t client_capabilities = CLIENT_CAPABILITIES;
+
+static char raspbootin_name[] = "raspbootin";
+
+static struct dirent *raspbootin_read_directory(struct fs *fs, char **name);
+static FILE *raspbootin_fopen(struct fs *fs, struct dirent *path, const char *mode);
+static size_t raspbootin_fread(struct fs *fs, void *ptr, size_t size, size_t nmemb, FILE *stream);
+static int raspbootin_fclose(struct fs *fs, FILE *fp);
+
+static int send_message_int(int cmd_id, void *send_buf, size_t send_buf_len,
+                            void *recv_buf, size_t recv_buf_len)
+{
+    // Send a message (v2 messages only)
+#ifdef RASPBOOTIN_DEBUG
+    printf("RASPBOOTIN: sending cmd %i\n");
+#endif
+
+    // Check capabilities
+    if((cmd_id < 0) || (cmd_id > 31))
+    {
+        printf("RASPBOOTIN: invalid cmd number %i\n");
+        return INVALID_CMD;
+    }
+    if(cmd_id == 3)
+    {
+        printf("RASPBOOTIN: cannot use send_message_int to send cmd 3\n");
+        return INVALID_CMD;
+    }
+    uint32_t msg_capabilities = (1 << cmd_id);
+    if(!(client_capabilities & msg_capabilities))
+    {
+        printf("RASPBOOTIN: client does not support cmd %i\n");
+        return UNSUPPORTED_CMD;
+    }
+    if(!(server_capabilities & msg_capabilities))
+    {
+        printf("RASPBOOTIN: server does not support cmd %i\n");
+        return UNSUPPORTED_CMD;
+    }
+
+    // The crc of the request is calculated from 'options'
+    uint32_t crc = crc32(send_buf, send_buf_len);
+
+    // Disable debug output on the uart
+    rpi_boot_output_state ostate = output_get_state();
+    output_disable_uart();
+
+    // Clear the receive buffer
+    while(uart_getc_timeout(1000) != -1);
+
+    // Send the message
+    uart_putc('\003');
+    uart_putc('\003');
+    uart_putc(cmd_id);
+
+    uint8_t *send_p = (uint8_t *)send_buf;
+    while(send_buf_len--)
+        uart_putc(*send_p++);
+
+    uart_putc(BYTE(crc, 0));
+    uart_putc(BYTE(crc, 1));
+    uart_putc(BYTE(crc, 2));
+    uart_putc(BYTE(crc, 3));
+
+    // Wait for the response
+    usleep(2000);
+
+    // Begin reading response
+    int r_buf = 0;
+    int ret = 0;
+
+    // Read magic number
+    uint32_t magic = 0;
+    for(int i = 0; i < 4; i++)
+    {
+        r_buf = uart_getc_timeout(UART_TIMEOUT);
+        CHECK(r_buf);
+        magic = r_buf | (magic << 8);
+    }
+
+    if(magic != MAGIC)
+    {
+        ret = INVALID_MAGIC;
+        goto cleanup;
+    }
+
+    // Read response length
+    uint32_t resp_length = 0;
+    for(int i = 0; i < 4; i++)
+    {
+        r_buf = uart_getc_timeout(UART_TIMEOUT);
+        CHECK(r_buf);
+        resp_length = r_buf | (resp_length << 8);
+    }
+
+    // Read error_code
+    uint32_t error_code = 0;
+    for(int i = 0; i < 4; i++)
+    {
+        r_buf = uart_getc_timeout(UART_TIMEOUT);
+        CHECK(r_buf);
+        error_code = r_buf | (error_code << 8);
+    }
+
+    if(error_code != SUCCESS)
+    {
+        ret = error_code;
+        goto cleanup;
+    }
+
+    // Read the data (maximum is whatever is greater - recv_buf_len
+    // or resp_length)
+    size_t data_to_read_to_buffer = (size_t)resp_length;
+    size_t data_to_discard = 0;
+    size_t data_to_pad = 0;
+    if(data_to_read_to_buffer > recv_buf_len)
+    {
+        data_to_read_to_buffer = recv_buf_len;
+        data_to_discard = data_to_read_to_buffer - recv_buf_len;
+    }
+    else if(recv_buf_len > data_to_read_to_buffer)
+        data_to_pad = recv_buf_len - data_to_read_to_buffer;
+
+    crc = crc32_start();
+    int data_read = 0;
+    uint8_t *rptr = (uint8_t *)recv_buf;
+    while(data_to_read_to_buffer--)
+    {
+        r_buf = uart_getc_timeout(UART_TIMEOUT);
+        CHECK(r_buf);
+        crc = crc32_append(crc, &r_buf, 1);
+        *rptr++ = r_buf;
+        data_read++;
+    }
+    while(data_to_discard--)
+    {
+        r_buf = uart_getc_timeout(UART_TIMEOUT);
+        CHECK(r_buf);
+        crc = crc32_append(crc, &r_buf, 1);
+    }
+    while(data_to_pad--)
+        *rptr++ = 0;
+
+    // Read the response CRC
+    uint32_t resp_crc = 0;
+    for(int i = 0; i < 4; i++)
+    {
+        r_buf = uart_getc_timeout(UART_TIMEOUT);
+        CHECK(r_buf);
+        resp_crc = r_buf | (resp_crc << 8);
+    }
+    if(resp_crc != crc)
+    {
+        ret = CRC_ERROR;
+        goto cleanup;
+    }
+
+cleanup:
+    if(ret == 0)
+        ret = data_read;
+
+    // Clear the uart buffer
+    while(uart_getc_timeout(1000) != -1);
+
+    // Re-enable uart debug output
+    output_restore_state(ostate);
+
+#ifdef RASPBOOTIN_DEBUG
+    printf("RASPBOOTIN: send_message_int, returning %i\n", ret);
+#endif
+    return ret;
+}
+
+static int send_message(int cmd_id, void *send_buf, size_t send_buf_len,
+                        void *recv_buf, size_t recv_buf_len)
+{
+    // Send a message, retry on CRC failure
+
+    int retries = 0;
+    while(retries < MAX_RETRIES)
+    {
+        int ret = send_message_int(cmd_id, send_buf, send_buf_len,
+                                   recv_buf, recv_buf_len);
+
+        if(ret >= 0)
+            return ret;
+        if(ret != CRC_ERROR)
+            return ret;
+
+        retries++;
+    }
+    return CRC_ERROR;
+}
 
 int raspbootin_init(struct fs **fs)
 {
+    // Try and communicate with a raspbootin server
+    uint32_t caps;
+    int ret = send_message(0, 0, 0, &caps, sizeof(uint32_t));
+    if(ret == sizeof(uint32_t))
+    {
+        printf("RASPBOOTIN: server contacted.\n");
+        server_capabilities = caps;
+#ifdef RASPBOOTIN_DEBUG
+        printf("RASPBOOTIN: server capabilities: %08x\n", caps);
+#endif
+    }
+    else
+    {
+#ifdef RASPBOOTIN_DEBUG
+        printf("RASPBOOTIN: no server response to cmd 0 (ret %i)\n", ret);
+#endif
+        server_capabilities = (1 << 3); // only support v1
+    }
+
+    // Build a block device structure
+    struct block_device *b_dev = (struct block_device *)malloc(sizeof(struct block_device));
+    memset(b_dev, 0, sizeof(struct block_device));
+    b_dev->device_name = raspbootin_name;
+
+    // Build a fs structure
+    struct fs *r_fs = (struct fs *)malloc(sizeof(struct fs));
+    memset(r_fs, 0, sizeof(struct fs));
+    r_fs->parent = b_dev;
+    r_fs->fs_name = raspbootin_name;
+    r_fs->fopen = raspbootin_fopen;
+    r_fs->fread = raspbootin_fread;
+    r_fs->fclose = raspbootin_fclose;
+    r_fs->read_directory = raspbootin_read_directory;
+
+    *fs = r_fs;
+    return 0;
+}
+
+static struct dirent *raspbootin_read_directory(struct fs *fs, char **name)
+{
     (void)fs;
+    (void)name;
+    return (void *)0;
+}
+
+static FILE *raspbootin_fopen(struct fs *fs, struct dirent *path,
+                              const char *mode)
+{
+    (void)fs;
+    (void)path;
+    (void)mode;
+    return (void *)0;
+}
+
+static int raspbootin_fclose(struct fs *fs, FILE *fp)
+{
+    (void)fs;
+    (void)fp;
+    return 0;
+}
+
+static size_t raspbootin_fread(struct fs *fs, void *ptr, size_t size,
+                               size_t nmemb, FILE *stream)
+{
+    (void)fs;
+    (void)ptr;
+    (void)size;
+    (void)nmemb;
+    (void)stream;
     return 0;
 }
