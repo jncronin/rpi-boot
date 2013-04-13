@@ -152,24 +152,21 @@
 #include "uart.h"
 #include "crc32.h"
 #include "block.h"
+#include "raspbootin.h"
 
-#define SUCCESS         0
-#define PATH_NOT_FOUND  -1
-#define EOF             -2
-#define CRC_ERROR       -3
-#define INVALID_CMD     -4
-#define UNSUPPORTED_CMD -5
-#define TIMEOUT         -6
-#define INVALID_MAGIC   -7
-
-#define MAX_RETRIES     3
-#define UART_TIMEOUT    10000
-#define MAGIC           0x31415927
+#define UART_TIMEOUT            10000
+#define READDIR_BUF_LEN         0x1000
+#define MAX_RETRIES             3
 
 #define CLIENT_CAPABILITIES     0x1f
 
 #define BYTE(num, idx)      (((num) >> ((idx) * 8)) & 0xff)
-#define CHECK(resp)         if((resp) == -1) { ret = TIMEOUT; goto cleanup; }
+
+#ifdef RASPBOOTIN_DEBUG
+#define CHECK(resp, floc)   if((resp) == -1) { ret = TIMEOUT; fail_loc = floc; goto cleanup; }
+#else
+#define CHECK(resp, floc)   if((resp) == -1) { ret = TIMEOUT; goto cleanup; }
+#endif
 
 static uint32_t server_capabilities = 9;    // assume server can interpret
                                             // cmds 0 and 3
@@ -181,6 +178,8 @@ static struct dirent *raspbootin_read_directory(struct fs *fs, char **name);
 static FILE *raspbootin_fopen(struct fs *fs, struct dirent *path, const char *mode);
 static size_t raspbootin_fread(struct fs *fs, void *ptr, size_t size, size_t nmemb, FILE *stream);
 static int raspbootin_fclose(struct fs *fs, FILE *fp);
+static int send_message(int cmd_id, void *send_buf, size_t send_buf_len,
+                        void *recv_buf, size_t recv_buf_len);
 
 static int send_message_int(int cmd_id, void *send_buf, size_t send_buf_len,
                             void *recv_buf, size_t recv_buf_len)
@@ -188,6 +187,7 @@ static int send_message_int(int cmd_id, void *send_buf, size_t send_buf_len,
     // Send a message (v2 messages only)
 #ifdef RASPBOOTIN_DEBUG
     printf("RASPBOOTIN: sending cmd %i\n");
+    int fail_loc = 0;
 #endif
 
     // Check capabilities
@@ -249,7 +249,7 @@ static int send_message_int(int cmd_id, void *send_buf, size_t send_buf_len,
     for(int i = 0; i < 4; i++)
     {
         r_buf = uart_getc_timeout(UART_TIMEOUT);
-        CHECK(r_buf);
+        CHECK(r_buf, 0);
         magic = r_buf | (magic << 8);
     }
 
@@ -264,7 +264,7 @@ static int send_message_int(int cmd_id, void *send_buf, size_t send_buf_len,
     for(int i = 0; i < 4; i++)
     {
         r_buf = uart_getc_timeout(UART_TIMEOUT);
-        CHECK(r_buf);
+        CHECK(r_buf, 1);
         resp_length = r_buf | (resp_length << 8);
     }
 
@@ -273,13 +273,16 @@ static int send_message_int(int cmd_id, void *send_buf, size_t send_buf_len,
     for(int i = 0; i < 4; i++)
     {
         r_buf = uart_getc_timeout(UART_TIMEOUT);
-        CHECK(r_buf);
+        CHECK(r_buf, 2);
         error_code = r_buf | (error_code << 8);
     }
 
     if(error_code != SUCCESS)
     {
         ret = error_code;
+#ifdef RASPBOOTIN_DEBUG
+        fail_loc = 3;
+#endif
         goto cleanup;
     }
 
@@ -302,7 +305,7 @@ static int send_message_int(int cmd_id, void *send_buf, size_t send_buf_len,
     while(data_to_read_to_buffer--)
     {
         r_buf = uart_getc_timeout(UART_TIMEOUT);
-        CHECK(r_buf);
+        CHECK(r_buf, 4);
         crc = crc32_append(crc, &r_buf, 1);
         *rptr++ = r_buf;
         data_read++;
@@ -310,7 +313,7 @@ static int send_message_int(int cmd_id, void *send_buf, size_t send_buf_len,
     while(data_to_discard--)
     {
         r_buf = uart_getc_timeout(UART_TIMEOUT);
-        CHECK(r_buf);
+        CHECK(r_buf, 5);
         crc = crc32_append(crc, &r_buf, 1);
     }
     while(data_to_pad--)
@@ -321,12 +324,15 @@ static int send_message_int(int cmd_id, void *send_buf, size_t send_buf_len,
     for(int i = 0; i < 4; i++)
     {
         r_buf = uart_getc_timeout(UART_TIMEOUT);
-        CHECK(r_buf);
+        CHECK(r_buf, 6);
         resp_crc = r_buf | (resp_crc << 8);
     }
     if(resp_crc != crc)
     {
         ret = CRC_ERROR;
+#ifdef RASPBOOTIN_DEBUG
+        fail_loc = 7;
+#endif
         goto cleanup;
     }
 
@@ -341,7 +347,8 @@ cleanup:
     output_restore_state(ostate);
 
 #ifdef RASPBOOTIN_DEBUG
-    printf("RASPBOOTIN: send_message_int, returning %i\n", ret);
+    printf("RASPBOOTIN: send_message_int, returning %i (fail_loc %i)\n",
+           ret, fail_loc);
 #endif
     return ret;
 }
@@ -410,7 +417,52 @@ int raspbootin_init(struct fs **fs)
 static struct dirent *raspbootin_read_directory(struct fs *fs, char **name)
 {
     (void)fs;
-    (void)name;
+
+    // Join together the directory name
+    int dir_name_length = 0;
+    char **name_p = name;
+    while(*name_p)
+    {
+        dir_name_length += strlen(*name_p);
+        dir_name_length++;
+        name_p++;
+    }
+    dir_name_length++;
+    char *dir_name = (char *)malloc(dir_name_length);
+    name_p = name;
+    char *dir_name_p = dir_name;
+    while(*name_p)
+    {
+        strcpy(dir_name_p, *name_p);
+        dir_name_p += strlen(*name_p);
+        *dir_name_p++ = '/';
+        name_p++;
+    }
+    *dir_name_p = '\0';
+
+    // Resolve the root directory to an empty string
+    int is_root = 0;
+    if(strcmp(dir_name, "/"))
+    {
+        dir_name[0] = '\0';
+        is_root = 1;
+    }
+
+    // Create a string object of the correct size
+
+
+    // Send a request for the contents of this directory
+    if(server_capabilities & (1 << 1))
+    {
+        uint8_t *buf = (uint8_t *)malloc(READDIR_BUF_LEN);
+        int ret = send_message(1, dir_name, strlen(dir_name),
+                               buf, READDIR_BUF_LEN);
+
+        (void)ret;
+    }
+
+    (void)is_root;
+
     return (void *)0;
 }
 
