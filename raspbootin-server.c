@@ -27,30 +27,83 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <sys/socket.h>
-#include <sys/un.h>
+
 #include <fcntl.h>
 #include <string.h>
 #include <stdint.h>
 #include <unistd.h>
 #include <errno.h>
-#include <termios.h>
+
 #include "crc32.h"
 #include "raspbootin.h"
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <termios.h>
+#ifndef UNIX_SOCKETS
+#define UNIX_SOCKETS
+#endif
+#endif // _WIN32
 
 #define READ_BUF_LEN                0x1000
 
 #define SERVER_CAPABILITIES         0x1f
 
+#ifdef _WIN32
+typedef HANDLE port_addr;
+#else
+typedef int port_addr;
+#define INVALID_HANDLE_VALUE        -1
+#endif
+
 static uint32_t magic = MAGIC;
 static uint32_t server_caps = SERVER_CAPABILITIES;
 
-static int do_cmd(int cmd_id, int fd);
-static int send_error_msg(int fd, int error_code);
+static int do_cmd(int cmd_id, port_addr fd);
+static int send_error_msg(port_addr fd, int error_code);
+
+#ifdef UNIX_SOCKETS
 static struct sockaddr *sock_addr;
 static socklen_t addrlen;
+#endif
 
-static int wait_connection(int fd)
+static inline ssize_t serial_write(port_addr fd, const void *buf, size_t count)
+{
+#ifdef _WIN32
+    ssize_t ret = 0;
+    int wf_ret = WriteFile(fd, buf, (DWORD)count, (LPDWORD)&ret, NULL);
+    if(wf_ret == 0)
+    {
+        fprintf(stderr, "WriteFile() failed: %08x\n", GetLastError());
+        return 0;
+    }
+    return ret;
+#else
+    return write(fd, buf, count);
+#endif
+}
+
+static inline ssize_t serial_read(port_addr fd, void *buf, size_t count)
+{
+#ifdef _WIN32
+    ssize_t ret = 0;
+    int rf_ret = ReadFile(fd, buf, (DWORD)count, (LPDWORD)&ret, NULL);
+    if(rf_ret == 0)
+    {
+        fprintf(stderr, "ReadFile() failed: %08x\n", GetLastError());
+        return 0;
+    }
+    return ret;
+#else
+    return read(fd, buf, count);
+#endif
+}
+
+#ifdef UNIX_SOCKETS
+static port_addr wait_connection(port_addr fd)
 {
     // Check fd type
     struct stat buf;
@@ -83,10 +136,14 @@ static int wait_connection(int fd)
     else
         return fd;
 }
+#else
+#define wait_connection(a) (a)
+#endif
 
-static int open_serial(const char *dev)
+static port_addr open_serial(const char *dev)
 {
     // Decide on the type of the file
+#ifdef UNIX_SOCKETS
     struct stat stat_buf;
     int stat_ret = stat(dev, &stat_buf);
 
@@ -133,7 +190,51 @@ static int open_serial(const char *dev)
         return wait_connection(fd);
     }
     else
+#endif
     {
+#ifdef _WIN32
+        port_addr fd = CreateFile(dev, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_FLAG_NO_BUFFERING, NULL);
+        if(fd == INVALID_HANDLE_VALUE)
+        {
+            fprintf(stderr, "Error opening %s, error: %08x\n", dev, GetLastError());
+            return fd;
+        }
+
+        DCB config;
+        if(GetCommState(fd, &config) == 0)
+        {
+            fprintf(stderr, "Error calling GetCommState, error %08x\n", GetLastError());
+            return INVALID_HANDLE_VALUE;
+        }
+
+        // Set the port settings
+        config.BaudRate = 115200;
+        config.ByteSize = 8;
+        config.Parity = NOPARITY;
+        config.StopBits = ONESTOPBIT;
+
+        if(SetCommState(fd, &config) == 0)
+        {
+            fprintf(stderr, "Error calling SetCommState, error %08x\n", GetLastError());
+            return INVALID_HANDLE_VALUE;
+        }
+
+        // Set the timeouts
+        COMMTIMEOUTS timeouts;
+        timeouts.ReadIntervalTimeout = 1;
+        timeouts.ReadTotalTimeoutMultiplier = 1;
+        timeouts.ReadTotalTimeoutConstant = 1;
+        timeouts.WriteTotalTimeoutMultiplier = 1;
+        timeouts.WriteTotalTimeoutConstant = 1;
+        if(SetCommTimeouts(fd, &timeouts) == 0)
+        {
+            fprintf(stderr, "Error calling SetCommTimeouts, error %08x\n",
+                    GetLastError());
+            return INVALID_HANDLE_VALUE;
+        }
+
+        return fd;
+#else
         // The termios structure, to be configured for serial interface
         struct termios termios;
 
@@ -182,25 +283,29 @@ static int open_serial(const char *dev)
         }
 
         return fd;
+#endif
     }
 }
 
 int main(int argc, char *argv[])
 {
-    int fd = -1;
+    port_addr fd = INVALID_HANDLE_VALUE;
 
     // Open the serial device
-    while(fd == -1)
+    while(fd == INVALID_HANDLE_VALUE)
     {
         fd = open_serial(argv[1]);
 
-        if((fd == -1) && ((errno == ENOENT) || (errno == ENODEV)))
+#ifndef _WIN32
+        if((fd == INVALID_HANDLE_VALUE) && ((errno == ENOENT) || (errno == ENODEV)))
         {
             fprintf(stderr, "Waiting for %s\n", argv[1]);
             sleep(1);
             continue;
         }
-        else if(fd == -1)
+        else
+#endif
+        if(fd == INVALID_HANDLE_VALUE)
         {
             fprintf(stderr, "Error opening %s\n", argv[1]);
             return -1;
@@ -212,7 +317,7 @@ int main(int argc, char *argv[])
 
     for(;;)
     {
-        int bytes_read = read(fd, &buf, 1);
+        int bytes_read = serial_read(fd, &buf, 1);
 
         if(bytes_read > 0)
         {
@@ -238,7 +343,7 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-static int do_cmd(int cmd, int fd)
+static int do_cmd(int cmd, port_addr fd)
 {
     switch(cmd)
     {
@@ -248,9 +353,8 @@ static int do_cmd(int cmd, int fd)
 
             // Read the command crc
             uint32_t ccrc;
-            read(fd, &ccrc, 4);
+            serial_read(fd, &ccrc, 4);
             uint32_t eccrc = crc32((void *)0, 0);
-            printf("Command CRC: %08x, expected %08x\n", ccrc, eccrc);
             if(ccrc != eccrc)
                 return send_error_msg(fd, CRC_ERROR);
 
@@ -267,11 +371,13 @@ static int do_cmd(int cmd, int fd)
             crc = crc32_finish(crc);
 
             // Send the response
-            write(fd, &magic, 4);
-            write(fd, &resp_length, 4);
-            write(fd, &error_code, 4);
-            write(fd, &server_caps, 4);
-            write(fd, &crc, 4);
+            serial_write(fd, &magic, 4);
+            serial_write(fd, &resp_length, 4);
+            serial_write(fd, &error_code, 4);
+            serial_write(fd, &server_caps, 4);
+            serial_write(fd, &crc, 4);
+
+            fprintf(stderr, "Sent CMD0 response\n");
 
             return 0;
         }
@@ -280,7 +386,7 @@ static int do_cmd(int cmd, int fd)
     return 0;
 }
 
-static int send_error_msg(int fd, int error_code)
+static int send_error_msg(port_addr fd, int error_code)
 {
     // Send a fail response - <magic><resp_length = 8><error_code><crc>
 
@@ -291,10 +397,12 @@ static int send_error_msg(int fd, int error_code)
     crc = crc32_append(crc, &error_code, 4);
     crc = crc32_finish(crc);
 
-    write(fd, &magic, 4);
-    write(fd, &resp_length, 4);
-    write(fd, &error_code, 4);
-    write(fd, &crc, 4);
+    serial_write(fd, &magic, 4);
+    serial_write(fd, &resp_length, 4);
+    serial_write(fd, &error_code, 4);
+    serial_write(fd, &crc, 4);
+
+    fprintf(stderr, "Sent ERROR %i response\n", error_code);
 
     return 0;
 }
