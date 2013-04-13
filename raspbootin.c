@@ -180,6 +180,20 @@ static size_t raspbootin_fread(struct fs *fs, void *ptr, size_t size, size_t nme
 static int raspbootin_fclose(struct fs *fs, FILE *fp);
 static int send_message(int cmd_id, void *send_buf, size_t send_buf_len,
                         void *recv_buf, size_t recv_buf_len);
+static int read_lsb32(uint32_t *val, useconds_t timeout)
+{
+    uint32_t ret = 0;
+    for(int i = 0; i < 4; i++)
+    {
+        int rbuf = uart_getc_timeout(timeout);
+        if(rbuf == -1)
+            return -1;
+        uint32_t v = (uint32_t)rbuf & 0xff;
+        ret |= (v << (i * 8));
+    }
+    *val = ret;
+    return 0;
+}
 
 static int send_message_int(int cmd_id, void *send_buf, size_t send_buf_len,
                             void *recv_buf, size_t recv_buf_len)
@@ -246,36 +260,24 @@ static int send_message_int(int cmd_id, void *send_buf, size_t send_buf_len,
 
     // Read magic number
     uint32_t magic = 0;
-    for(int i = 0; i < 4; i++)
-    {
-        r_buf = uart_getc_timeout(UART_TIMEOUT);
-        CHECK(r_buf, 0);
-        magic = r_buf | (magic << 8);
-    }
+    CHECK(read_lsb32(&magic, UART_TIMEOUT), 0);
 
     if(magic != MAGIC)
     {
+#ifdef RASPBOOTIN_DEBUG
+        printf("RASPBOOTIN: invalid magic received: %08x (expecting %08x)\n", magic, MAGIC);
+#endif
         ret = INVALID_MAGIC;
         goto cleanup;
     }
 
     // Read response length
     uint32_t resp_length = 0;
-    for(int i = 0; i < 4; i++)
-    {
-        r_buf = uart_getc_timeout(UART_TIMEOUT);
-        CHECK(r_buf, 1);
-        resp_length = r_buf | (resp_length << 8);
-    }
+    CHECK(read_lsb32(&resp_length, UART_TIMEOUT), 1);
 
     // Read error_code
     uint32_t error_code = 0;
-    for(int i = 0; i < 4; i++)
-    {
-        r_buf = uart_getc_timeout(UART_TIMEOUT);
-        CHECK(r_buf, 2);
-        error_code = r_buf | (error_code << 8);
-    }
+    CHECK(read_lsb32(&error_code, UART_TIMEOUT), 2);
 
     if(error_code != SUCCESS)
     {
@@ -288,7 +290,10 @@ static int send_message_int(int cmd_id, void *send_buf, size_t send_buf_len,
 
     // Read the data (maximum is whatever is greater - recv_buf_len
     // or resp_length)
-    size_t data_to_read_to_buffer = (size_t)resp_length;
+    // Resp_length is length of the message minus magic and crc
+    //  therefore it includes the length of resp_length and error_code
+    //  which have already been read, therefore subtract 8
+    size_t data_to_read_to_buffer = (size_t)(resp_length - 8);
     size_t data_to_discard = 0;
     size_t data_to_pad = 0;
     if(data_to_read_to_buffer > recv_buf_len)
@@ -300,6 +305,9 @@ static int send_message_int(int cmd_id, void *send_buf, size_t send_buf_len,
         data_to_pad = recv_buf_len - data_to_read_to_buffer;
 
     crc = crc32_start();
+    crc = crc32_append(crc, &magic, 4);
+    crc = crc32_append(crc, &resp_length, 4);
+    crc = crc32_append(crc, &error_code, 4);
     int data_read = 0;
     uint8_t *rptr = (uint8_t *)recv_buf;
     while(data_to_read_to_buffer--)
@@ -318,15 +326,11 @@ static int send_message_int(int cmd_id, void *send_buf, size_t send_buf_len,
     }
     while(data_to_pad--)
         *rptr++ = 0;
+    crc = crc32_finish(crc);
 
     // Read the response CRC
     uint32_t resp_crc = 0;
-    for(int i = 0; i < 4; i++)
-    {
-        r_buf = uart_getc_timeout(UART_TIMEOUT);
-        CHECK(r_buf, 6);
-        resp_crc = r_buf | (resp_crc << 8);
-    }
+    CHECK(read_lsb32(&resp_crc, UART_TIMEOUT), 6);
     if(resp_crc != crc)
     {
         ret = CRC_ERROR;
@@ -349,6 +353,11 @@ cleanup:
 #ifdef RASPBOOTIN_DEBUG
     printf("RASPBOOTIN: send_message_int, returning %i (fail_loc %i)\n",
            ret, fail_loc);
+    if(ret == CRC_ERROR)
+    {
+        printf("RASPBOOTIN: CRC error: read CRC %08x, expected %08x, magic %08x, resp_length %08x, error_code %08x\n",
+               resp_crc, crc, magic, resp_length, error_code);
+    }
 #endif
     return ret;
 }
