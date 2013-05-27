@@ -31,13 +31,6 @@
 #define MBR_DEBUG
 #endif
 
-#ifdef ENABLE_FAT
-int fat_init(struct block_device *, struct fs **);
-#endif
-#ifdef ENABLE_EXT2
-int ext2_init(struct block_device *, struct fs **);
-#endif
-
 // Code for interpreting an mbr
 
 struct mbr_block_dev {
@@ -53,6 +46,8 @@ static char driver_name[] = "mbr";
 
 static int mbr_read(struct block_device *, uint8_t *buf, size_t buf_size, uint32_t starting_block);
 static int mbr_write(struct block_device *, uint8_t *buf, size_t buf_size, uint32_t starting_block);
+
+void register_fs(struct block_device *dev, int part_id);
 
 int read_mbr(struct block_device *parent, struct block_device ***partitions, int *part_count)
 {
@@ -76,12 +71,14 @@ int read_mbr(struct block_device *parent, struct block_device ***partitions, int
 	if(ret < 0)
 	{
 		printf("MBR: block_read failed (%i)\n", ret);
+		free(block_0);
 		return ret;
 	}
 	if(ret != 512)
 	{
 		printf("MBR: unable to read first 512 bytes of device %s, only %d bytes read\n",
 				parent->device_name, ret);
+		free(block_0);
 		return -1;
 	}
 
@@ -90,6 +87,7 @@ int read_mbr(struct block_device *parent, struct block_device ***partitions, int
 	{
 		printf("MBR: no valid mbr signature on device %s (bytes are %x %x)\n",
 				parent->device_name, block_0[0x1fe], block_0[0x1ff]);
+		free(block_0);
 		return -1;
 	}
 	printf("MBR: found valid MBR on device %s\n", parent->device_name);
@@ -112,6 +110,7 @@ int read_mbr(struct block_device *parent, struct block_device ***partitions, int
     {
         // We do not support parent device block sizes < 512
         printf("MBR: parent block device is too small (%i)\n", parent->block_size);
+		free(block_0);
         return -1;
     }
 
@@ -122,6 +121,7 @@ int read_mbr(struct block_device *parent, struct block_device ***partitions, int
         //  multiple of 512
         printf("MBR: parent block size is not a multiple of 512 (%i)\n",
                parent->block_size);
+		free(block_0);
         return -1;
     }
 
@@ -192,42 +192,20 @@ int read_mbr(struct block_device *parent, struct block_device ***partitions, int
 					d->part_no, d->bd.device_name, d->part_id,
 					d->start_block, d->blocks, p_offset);
 #endif
-
-			switch(d->part_id)
-			{
-				case 1:
-				case 4:
-				case 6:
-				case 0xb:
-				case 0xc:
-				case 0xe:
-				case 0x11:
-				case 0x14:
-				case 0x1b:
-				case 0x1c:
-				case 0x1e:
-#ifdef ENABLE_FAT
-					fat_init((struct block_device *)d, &d->bd.fs);
-#endif
-					break;
-
-				case 0x83:
-#ifdef ENABLE_EXT2
-					ext2_init((struct block_device *)d, &d->bd.fs);
-#endif
-					break;
-			}
-
-			if(d->bd.fs)
-				vfs_register(d->bd.fs);
+			// Register the fs
+			register_fs((struct block_device *)d, d->part_id);
 		}
 	}
 
 	if (NULL != partitions)
 		*partitions = parts;
+	else
+		free(parts);
 	if (NULL != part_count)
 		*part_count = cur_p;
 	printf("MBR: found total of %i partition(s)\n", cur_p);
+
+	free(block_0);
 
 	return 0;
 }

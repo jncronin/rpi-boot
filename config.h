@@ -45,3 +45,12 @@
 
 /* Enable experimental USB host support */
 #undef ENABLE_USB
+
+/* Enable ramdisk support */
+#define ENABLE_RAMDISK
+
+/* Enable nofs filesystem support */
+#undef ENABLE_NOFS
+
+/* Enable console log file support */
+#undef ENABLE_CONSOLE_LOGFILE

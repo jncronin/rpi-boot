@@ -34,6 +34,15 @@ int dwc_usb_init(struct usb_hcd **dev, uint32_t base);
 #ifdef ENABLE_RASPBOOTIN
 int raspbootin_init(struct fs **fs);
 #endif
+#ifdef ENABLE_FAT
+int fat_init(struct block_device *, struct fs **);
+#endif
+#ifdef ENABLE_EXT2
+int ext2_init(struct block_device *, struct fs **);
+#endif
+#ifdef ENABLE_NOFS
+int nofs_init(struct block_device *, struct fs **);
+#endif
 
 void libfs_init()
 {
@@ -58,4 +67,67 @@ void libfs_init()
         vfs_register(raspbootin_fs);
 #endif
 }
+
+int register_fs(struct block_device *dev, int part_id)
+{
+	switch(part_id)
+	{
+		case 0:
+			// Try reading it as an mbr, then try all known filesystems
+#ifdef ENABLE_MBR
+			if(read_mbr(dev, NULL, NULL) == 0)
+				break;
+#endif
+#ifdef ENABLE_FAT
+			if(fat_init(dev, &dev->fs) == 0)
+				break;
+#endif
+#ifdef ENABLE_EXT2
+			if(ext2_init(dev, &dev->fs) == 0)
+				break;
+#endif
+#ifdef ENABLE_NOFS
+			if(nofs_init(dev, &dev->fs) == 0)
+				break;
+#endif
+			break;
+
+		case 1:
+		case 4:
+		case 6:
+		case 0xb:
+		case 0xc:
+		case 0xe:
+		case 0x11:
+		case 0x14:
+		case 0x1b:
+		case 0x1c:
+		case 0x1e:
+#ifdef ENABLE_FAT
+			fat_init(dev, &dev->fs);
+#endif
+			break;
+
+		case 0x83:
+#ifdef ENABLE_EXT2
+			ext2_init(dev, &dev->fs);
+#endif
+			break;
+
+		case 0xda:
+#ifdef ENABLE_NOFS
+			nofs_init(dev, &dev->fs);
+#endif
+			break;
+	}
+
+	if(dev->fs)
+	{
+		vfs_register(dev->fs);
+		return 0;
+	}
+	else
+		return -1;
+}
+
 
