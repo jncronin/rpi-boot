@@ -51,15 +51,26 @@ RASPBOOTIN_OBJS = raspbootin.o
 SERIAL_OBJS = uart.o
 #endif
 
-#ifdef ENABLE_FONT0
-FONT0_OBJS = font.o
+#ifdef ENABLE_DEFAULT_FONT
+FONT_OBJS = font.o
+#endif
+
+/* Thanks to James Cone (https://github.com/JamesC1) for the idea here */
+#ifdef ENABLE_ALTERNATIVE_FONT
+FONT_OBJS = $(addsuffix .o,ALTERNATIVE_FONT)
+FONT_BIN = $(addsuffix .bin,ALTERNATIVE_FONT)
+FONT_OLDNAME = $(addsuffix $(addsuffix _bin_start, ALTERNATIVE_FONT), _binary_)
+FONT_NEWNAME = altfont
+
+$(FONT_OBJS): $(FONT_BIN) $(MAKEFILE) $(CONFIG_H)
+	$(ARMOBJCOPY) -I binary -O elf32-littlearm -B arm $(FONT_BIN) --rename-section .data=.rodata --redefine-sym $(FONT_OLDNAME)=$(FONT_NEWNAME) $(FONT_OBJS)
 #endif
 
 #ifdef ENABLE_MBR
 MBR_OBJS = mbr.o
 #endif
 
-OBJS = main.o boot.o libfs.o $(SERIAL_OBJS) stdio.o stream.o atag.o mbox.o $(FONT0_OBJS) $(FB_OBJS) stdlib.o mmio.o heap.o malloc.o printf.o $(SD_OBJS) block.o $(MBR_OBJS) $(FAT_OBJS) vfs.o multiboot.o memchunk.o $(EXT2_OBJS) elf.o timer.o util.o strtol.o $(USB_OBJS) output.o $(RASPBOOTIN_OBJS) crc32.o
+OBJS = main.o boot.o libfs.o $(SERIAL_OBJS) stdio.o stream.o atag.o mbox.o $(FONT_OBJS) $(FB_OBJS) stdlib.o mmio.o heap.o malloc.o printf.o $(SD_OBJS) block.o $(MBR_OBJS) $(FAT_OBJS) vfs.o multiboot.o memchunk.o $(EXT2_OBJS) elf.o timer.o util.o strtol.o $(USB_OBJS) output.o $(RASPBOOTIN_OBJS) crc32.o
 
 LIBFS_OBJS = libfs.o $(SD_OBJS) block.o $(MBR_OBJS) $(FAT_OBJS) vfs.o $(EXT2_OBJS) timer.o util.o mmio.o $(RASPBOOTIN_OBJS) crc32.o
 

@@ -26,15 +26,35 @@
 #include "console.h"
 #include "util.h"
 
-#ifdef ENABLE_FONT0
+#ifdef ENABLE_DEFAULT_FONT
 extern uint8_t vgafont8[];
 #define CHAR_W		8
 #define CHAR_H		8
 #define FONT		vgafont8
 #endif
 
+#ifdef ENABLE_ALTERNATIVE_FONT
+#ifdef ENABLE_DEFAULT_FONT
+#error Cannot enable both the default and alternative fonts
+#endif
+#define FONT		altfont
+extern uint8_t		FONT[];
+#define CHAR_W		ALTERNATIVE_FONT_W
+#define CHAR_H		ALTERNATIVE_FONT_H
+#ifdef ALTERNATIVE_FONT_LSB_LEFT
+#define FONT_LSB_LEFT
+#endif
+#endif
+
 #ifndef FONT
 #error No console font is defined! Please see config.h
+#endif
+
+// Some fonts are encoded that the least significant byte is to the left, others have it to the right
+#ifdef FONT_LSB_LEFT
+#define BIT_SHIFT (s_bit_no)
+#else
+#define BIT_SHIFT (7 - s_bit_no)
 #endif
 
 extern void memory_barrier();
@@ -124,7 +144,7 @@ void draw_char(char c, int x, int y, uint32_t fore, uint32_t back)
 
 			uint8_t s_byte = FONT[s_byte_no];
 			uint32_t colour = back;
-			if((s_byte >> (7 - s_bit_no)) & 0x1)
+			if((s_byte >> BIT_SHIFT) & 0x1)
 				colour = fore;
 
 			for(int i = 0; i < bytes_per_pixel; i++)
