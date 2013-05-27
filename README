@@ -24,6 +24,8 @@ access the framebuffer (via a printf() interface) and the filesystem
 Installation
 ------------
 
+Edit config.h to your needs to enable/disable certain functionality.
+
 Run make in the source directory and copy the kernel.img file to the SD card
 containing your Raspian distribution.  You are recommended to backup your
 original kernel.img file first.

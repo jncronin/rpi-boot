@@ -1,70 +1,28 @@
 ARMCC ?= arm-none-eabi-gcc
-ARMLD ?= arm-none-eabi-ld
-ARMOBJCOPY ?= arm-none-eabi-objcopy
-ARMAR ?= arm-none-eabi-ar
-QEMU ?= qemu-system-arm
+MAKEFILE = Makefile.rpi-boot
+MAKEFILE_IN = $(MAKEFILE).in
 
 all: kernel.img
 
-CFLAGS += -pedantic -pedantic-errors -nostdlib -nostartfiles -ffreestanding -Wall -Wextra -Werror -Wshadow
-CFLAGS += -std=gnu99
-CFLAGS += -O0
-CFLAGS += -I.
-CFLAGS += -g
-CFLAGS += -DDEBUG
-CFLAGS += -DBUILDING_RPIBOOT
+.PHONY: clean kernel.img libfs.a qemu qemu-gdb
 
-ASFLAGS += -Wa,-mcpu=arm1176jzf-s
+$(MAKEFILE): $(MAKEFILE_IN) config.h Makefile
+	$(ARMCC) -P -traditional-cpp -std=gnu99 -E -o $(MAKEFILE) -x c $(MAKEFILE_IN)
 
-QEMUFLAGS = -cpu arm1176 -m 256 -M raspi -kernel kernel-qemu.img -usb -nographic -serial unix:serial.pipe
-SDFLAGS = -sd sd.img
+clean: $(MAKEFILE)
+	$(MAKE) -f $(MAKEFILE) clean
 
-OBJS = main.o boot.o uart.o stdio.o stream.o atag.o mbox.o fb.o stdlib.o font.o console.o mmio.o heap.o malloc.o printf.o emmc.o block.o mbr.o fat.o vfs.o multiboot.o memchunk.o ext2.o elf.o timer.o util.o strtol.o dwc_usb.o output.o raspbootin.o crc32.o
+kernel.img: $(MAKEFILE)
+	$(MAKE) -f $(MAKEFILE) kernel.img
 
-LIBFS_OBJS = libfs.o emmc.o block.o mbr.o fat.o vfs.o ext2.o timer.o util.o mmio.o raspbootin.o crc32.o
+libfs.a: $(MAKEFILE)
+	$(MAKE) -f $(MAKEFILE) libfs.a
 
-.PHONY: clean
-.PHONY: qemu
-.PHONY: qemu-gdb
+qemu: $(MAKEFILE)
+	$(MAKE) -f $(MAKEFILE) qemu
 
-libfs.a: $(LIBFS_OBJS)
-	$(ARMAR) rcs $@ $(LIBFS_OBJS)
-
-kernel.elf: $(OBJS) linker.ld
-	$(ARMCC) -nostdlib $(OBJS) -Wl,-T,linker.ld -o $@ -lgcc
-
-kernel.img: kernel.elf
-	$(ARMOBJCOPY) kernel.elf -O binary kernel.img
-
-kernel-qemu.elf: $(OBJS) linker-qemu.ld
-	$(ARMCC) -nostdlib $(OBJS) -Wl,-T,linker-qemu.ld -o $@ -lgcc
-
-kernel-qemu.img: kernel-qemu.elf
-	$(ARMOBJCOPY) kernel-qemu.elf -O binary kernel-qemu.img
-
-clean:
-	$(RM) -f $(OBJS) kernel.elf kernel.img kernel-qemu.img kernel-qemu.elf
-
-%.o: %.c Makefile
-	$(ARMCC) $(CFLAGS) -c $< -o $@
-
-%.o: %.s Makefile
-	$(ARMCC) $(ASFLAGS) -c $< -o $@
-
-qemu: kernel-qemu.img
-	if [ -f sd.img ]; then \
-		$(QEMU) $(QEMUFLAGS) -sd sd.img; \
-	else \
-		$(QEMU) $(QEMUFLAGS); \
-	fi
-
-qemu-gdb: kernel-qemu.img
-	if [ -f sd.img ]; then \
-		$(QEMU) $(QEMUFLAGS) -sd sd.img -s -S; \
-	else \
-		$(QEMU) $(QEMUFLAGS) -s -S; \
-	fi
+qemu-gdb: $(MAKEFILE)
+	$(MAKE) -f $(MAKEFILE) qemu-gdb
 
 raspbootin-server: raspbootin-server.c crc32.c
 	$(CC) -g -std=c99 -o $@ $^
-

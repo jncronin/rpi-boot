@@ -22,14 +22,40 @@
 #include "block.h"
 #include "vfs.h"
 
+#ifdef ENABLE_SD
 int sd_card_init(struct block_device **dev);
+#endif
+#ifdef ENABLE_MBR
 int read_mbr(struct block_device *, struct block_device ***, int *);
+#endif
+#ifdef ENABLE_USB
+int dwc_usb_init(struct usb_hcd **dev, uint32_t base);
+#endif
+#ifdef ENABLE_RASPBOOTIN
+int raspbootin_init(struct fs **fs);
+#endif
 
 void libfs_init()
 {
-	struct block_device *sd_dev;
+#ifdef ENABLE_USB
+	struct usb_hcd *usb_hcd;
+	dwc_usb_init(&usb_hcd, DWC_USB_BASE);
+#endif
 
+#ifdef ENABLE_SD
+	struct block_device *sd_dev;
 	if(sd_card_init(&sd_dev) == 0)
+	{
+#ifdef ENABLE_MBR
 		read_mbr(sd_dev, (void*)0, (void*)0);
+#endif
+	}
+#endif
+
+#ifdef ENABLE_RASPBOOTIN
+    struct fs *raspbootin_fs;
+    if(raspbootin_init(&raspbootin_fs) == 0)
+        vfs_register(raspbootin_fs);
+#endif
 }
 

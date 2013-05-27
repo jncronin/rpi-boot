@@ -42,7 +42,9 @@ void output_disable_fb()
 
 void output_enable_fb()
 {
+#ifdef ENABLE_FRAMEBUFFER
     ostate |= RPIBOOT_OUTPUT_FB;
+#endif
 }
 
 void output_disable_uart()
@@ -52,7 +54,9 @@ void output_disable_uart()
 
 void output_enable_uart()
 {
+#ifdef ENABLE_SERIAL
     ostate |= RPIBOOT_OUTPUT_UART;
+#endif
 }
 
 void output_init()
@@ -63,9 +67,13 @@ void output_init()
 int split_putc(int c)
 {
     int ret = 0;
+#ifdef ENABLE_SERIAL
     if(ostate & RPIBOOT_OUTPUT_UART)
         ret = uart_putc(c);
+#endif
+#ifdef ENABLE_FRAMEBUFFER
     if(ostate & RPIBOOT_OUTPUT_FB)
         ret = console_putc(c);
+#endif
     return ret;
 }

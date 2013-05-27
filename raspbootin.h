@@ -30,6 +30,7 @@
 #define UNSUPPORTED_CMD -5
 #define TIMEOUT         -6
 #define INVALID_MAGIC   -7
+#define UNKNOWN_ERROR   -8
 
 #define MAGIC           0x27594131
 

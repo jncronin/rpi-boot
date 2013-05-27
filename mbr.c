@@ -31,8 +31,12 @@
 #define MBR_DEBUG
 #endif
 
+#ifdef ENABLE_FAT
 int fat_init(struct block_device *, struct fs **);
+#endif
+#ifdef ENABLE_EXT2
 int ext2_init(struct block_device *, struct fs **);
+#endif
 
 // Code for interpreting an mbr
 
@@ -202,11 +206,15 @@ int read_mbr(struct block_device *parent, struct block_device ***partitions, int
 				case 0x1b:
 				case 0x1c:
 				case 0x1e:
+#ifdef ENABLE_FAT
 					fat_init((struct block_device *)d, &d->bd.fs);
+#endif
 					break;
 
 				case 0x83:
+#ifdef ENABLE_EXT2
 					ext2_init((struct block_device *)d, &d->bd.fs);
+#endif
 					break;
 			}
 

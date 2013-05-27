@@ -28,6 +28,9 @@
 uint32_t read_word(uint8_t *buf, int offset);
 uint16_t read_halfword(uint8_t *buf, int offset);
 uint8_t read_byte(uint8_t *buf, int offset);
+void write_word(uint32_t val, uint8_t *buf, int offset);
+void write_halfword(uint16_t val, uint8_t *buf, int offset);
+void write_byte(uint8_t val, uint8_t *buf, int offset);
 
 void *quick_memcpy(void *dest, void *src, size_t n);
 

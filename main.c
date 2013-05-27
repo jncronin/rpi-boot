@@ -104,7 +104,7 @@ void atag_cb(struct atag *tag)
 			break;
 
 		case ATAG_CMDLINE:
-#ifdef ATAG_CMDLINE
+#ifdef ATAG_DEBUG
 			puts("ATAG_CMDLINE");
 			puts(&tag->u.cmdline.cmdline[0]);
 #endif
@@ -120,10 +120,7 @@ void atag_cb(struct atag *tag)
 	puts("");
 }
 
-int sd_card_init(struct block_device **dev);
-int read_mbr(struct block_device *, struct block_device ***, int *);
-int dwc_usb_init(struct usb_hcd **dev, uint32_t base);
-int raspbootin_init(struct fs **fs);
+void libfs_init();
 
 extern int (*stdout_putc)(int);
 extern int (*stderr_putc)(int);
@@ -150,6 +147,7 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 	// Dump ATAGS
 	parse_atags(atags, atag_cb);
 
+#ifdef ENABLE_FRAMEBUFFER
 	int result = fb_init();
 	if(result == 0)
 		puts("Successfully set up frame buffer");
@@ -158,6 +156,7 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 		puts("Error setting up framebuffer:");
 		puthex(result);
 	}
+#endif
 
 	// Switch to the framebuffer for output
 	output_enable_fb();
@@ -169,17 +168,7 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 		printf("Command line: %s\n", atag_cmd_line);
 
     // Register the various file systems
-	struct usb_hcd *usb_hcd;
-	dwc_usb_init(&usb_hcd, DWC_USB_BASE);
-
-	struct block_device *sd_dev;
-
-	if(sd_card_init(&sd_dev) == 0)
-		read_mbr(sd_dev, (void*)0, (void*)0);
-
-    struct fs *raspbootin_fs;
-    if(raspbootin_init(&raspbootin_fs) == 0)
-        vfs_register(raspbootin_fs);
+	libfs_init();
 
 	// List devices
 	printf("MAIN: device list: ");

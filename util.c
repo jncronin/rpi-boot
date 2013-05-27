@@ -24,6 +24,25 @@
 
 // Support for unaligned data access
 
+void write_word(uint32_t val, uint8_t *buf, int offset)
+{
+    buf[offset + 0] = val & 0xff;
+    buf[offset + 1] = (val >> 8) & 0xff;
+    buf[offset + 2] = (val >> 16) & 0xff;
+    buf[offset + 3] = (val >> 24) & 0xff;
+}
+
+void write_halfword(uint16_t val, uint8_t *buf, int offset)
+{
+    buf[offset + 0] = val & 0xff;
+    buf[offset + 1] = (val >> 8) & 0xff;
+}
+
+void write_byte(uint8_t byte, uint8_t *buf, int offset)
+{
+    buf[offset] = byte;
+}
+
 uint32_t read_word(uint8_t *buf, int offset)
 {
 	uint32_t b0 = buf[offset + 0] & 0xff;

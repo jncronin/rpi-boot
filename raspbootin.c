@@ -146,6 +146,10 @@
     If v1, and any other file is requested, we return error code ENOENT
 */
 
+#ifndef ENABLE_SERIAL
+#error Raspbootin support requires ENABLE_SERIAL in config.h
+#endif
+
 #include <string.h>
 #include "fs.h"
 #include "output.h"

@@ -26,13 +26,19 @@
 #include "console.h"
 #include "util.h"
 
+#ifdef ENABLE_FONT0
 extern uint8_t vgafont8[];
+#define CHAR_W		8
+#define CHAR_H		8
+#define FONT		vgafont8
+#endif
+
+#ifndef FONT
+#error No console font is defined! Please see config.h
+#endif
 
 extern void memory_barrier();
 extern uint32_t read_sctlr();
-
-#define CHAR_W		8
-#define CHAR_H		8
 
 #define DEF_FORE	0xffffffff
 #define DEF_BACK	0x00000000
@@ -57,6 +63,7 @@ void clear()
 	cur_y = 0;
 }
 
+#ifdef FONT
 void newline()
 {
 	cur_y++;
@@ -115,7 +122,7 @@ void draw_char(char c, int x, int y, uint32_t fore, uint32_t back)
 			int s_byte_no = s_offset / 8;
 			int s_bit_no = s_offset % 8;
 
-			uint8_t s_byte = vgafont8[s_byte_no];
+			uint8_t s_byte = FONT[s_byte_no];
 			uint32_t colour = back;
 			if((s_byte >> (7 - s_bit_no)) & 0x1)
 				colour = fore;
@@ -133,47 +140,4 @@ void draw_char(char c, int x, int y, uint32_t fore, uint32_t back)
 		line_d_offset += fb_get_pitch();
 	}
 }
-
-int fb_test(uint32_t fb_addr)
-{
-	volatile uint8_t *bb = (uint8_t *)fb_addr;
-
-	// dump fb location
-	puts("FB addr:");
-	puthex(fb_addr);
-	puts("");
-	puts("");
-
-	// clear to white
-	//memset((uint8_t *)bb, 0x0f, fb_get_byte_size());
-	//memory_barrier();
-
-	bb[0] = 0x12;
-	//bb[1] = 0x23;
-	//bb[2] = 0x34;
-	//bb[3] = 0x45;
-	//bb[1000] = 0x78;
-
-	uint8_t colour = 0;
-	for(int i = 0; i < fb_get_byte_size(); i++)
-		bb[i] = colour++;
-
-	return 0;
-}
-
-int console_test()
-{
-	uint32_t fb_addr = (uint32_t)fb_get_framebuffer();
-
-	puts("Console test, fb_addr =");
-	puthex(fb_addr);
-	puts("");
-
-	fb_test(fb_addr);
-	//fb_test(fb_addr + 0x40000000);
-	//fb_test(fb_addr + 0x80000000);
-	//fb_test(fb_addr + 0xc0000000);
-
-	return 0;
-}
-
+#endif

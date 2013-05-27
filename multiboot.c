@@ -92,6 +92,14 @@ static struct multiboot_method methods[] =
 	}
 };
 
+/* Define a dummy clear() function if the framebuffer is not enabled, to prevent
+ * buggy clients from calling a null pointer
+ */
+#ifndef ENABLE_FRAMEBUFFER
+void clear()
+{ }
+#endif
+
 struct multiboot_arm_functions funcs =
 {
 	.printf = printf,
@@ -509,11 +517,13 @@ int method_multiboot(char *args)
 	mbinfo->flags |= (1 << 9);
 
 	// Set the fb info
+#ifdef ENABLE_FRAMEBUFFER
 	mbinfo->fb_addr = (uint32_t)fb_get_framebuffer();
 	mbinfo->fb_size = (fb_get_width() << 16) | (fb_get_height() & 0xffff);
 	mbinfo->fb_pitch = fb_get_pitch();
 	mbinfo->fb_depth = (fb_get_bpp() << 16) | (0x1);	// TODO: check pixel_order
 	mbinfo->flags |= (1 << 11);
+#endif
 
 	// Set the device containing the kernel to be the default
 	vfs_set_default(fp->fs->parent->device_name);
