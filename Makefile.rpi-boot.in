@@ -3,10 +3,13 @@
 ARMCC ?= arm-none-eabi-gcc
 ARMLD ?= arm-none-eabi-ld
 ARMOBJCOPY ?= arm-none-eabi-objcopy
+ARMOBJDUMP ?= arm-none-eabi-objdump
 ARMAR ?= arm-none-eabi-ar
 QEMU ?= qemu-system-arm
+
 MAKEFILE ?= Makefile.rpi-boot
 CONFIG_H = config.h
+DISASM_DUMP = kernel.list
 
 all: kernel.img
 
@@ -77,6 +80,9 @@ LIBFS_OBJS = libfs.o $(SD_OBJS) block.o $(MBR_OBJS) $(FAT_OBJS) vfs.o $(EXT2_OBJ
 .PHONY: clean
 .PHONY: qemu
 .PHONY: qemu-gdb
+.PHONY: dump
+
+dump: $(DISASM_DUMP)
 
 libfs.a: $(LIBFS_OBJS)
 	$(ARMAR) rcs $@ $(LIBFS_OBJS)
@@ -94,7 +100,7 @@ kernel-qemu.img: kernel-qemu.elf
 	$(ARMOBJCOPY) kernel-qemu.elf -O binary kernel-qemu.img
 
 clean:
-	$(RM) -f $(OBJS) kernel.elf kernel.img kernel-qemu.img kernel-qemu.elf $(MAKEFILE)
+	$(RM) -f $(OBJS) $(DISASM_DUMP) kernel.elf kernel.img kernel-qemu.img kernel-qemu.elf $(MAKEFILE)
 
 %.o: %.c $(MAKEFILE) $(CONFIG_H)
 	$(ARMCC) $(CFLAGS) -include $(CONFIG_H) -c $< -o $@
@@ -115,3 +121,7 @@ qemu-gdb: kernel-qemu.img
 	else \
 		$(QEMU) $(QEMUFLAGS) -s -S; \
 	fi
+
+$(DISASM_DUMP): kernel.elf
+	$(ARMOBJDUMP) -D kernel.elf > $(DISASM_DUMP)
+
