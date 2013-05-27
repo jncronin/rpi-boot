@@ -26,9 +26,12 @@
 #include <stdio.h>
 #include "block.h"
 
+#define FS_FLAG_SUPPORTS_EMPTY_FNAME		1
+
 struct fs {
 	struct block_device *parent;
 	const char *fs_name;
+	uint32_t flags;
 
 	FILE *(*fopen)(struct fs *, struct dirent *, const char *mode);
 	size_t (*fread)(struct fs *, void *ptr, size_t size, size_t nmemb, FILE *stream);

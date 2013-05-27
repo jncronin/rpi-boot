@@ -247,7 +247,7 @@ int method_multiboot(char *args)
 	FILE *fp = fopen(file, "r");
 	if(!fp)
 	{
-		printf("MULTIBOOT: cannot load %s\n", file);
+		printf("MULTIBOOT: cannot load %s; errno=$d\n", file, errno);
 		return -1;
 	}
 #ifdef MULTIBOOT_DEBUG
@@ -662,7 +662,7 @@ int method_kernel(char *args)
 	FILE *fp = fopen(file, "r");
 	if(!fp)
 	{
-		printf("KERNEL: unable to load %s\n", file);
+		printf("KERNEL: unable to load %s; errno=%d\n", file, errno);
 		return -1;
 	}
 

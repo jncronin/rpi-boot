@@ -223,8 +223,10 @@ int read_mbr(struct block_device *parent, struct block_device ***partitions, int
 		}
 	}
 
-	*partitions = parts;
-	*part_count = cur_p;
+	if (NULL != partitions)
+		*partitions = parts;
+	if (NULL != part_count)
+		*part_count = cur_p;
 	printf("MBR: found total of %i partition(s)\n", cur_p);
 
 	return 0;

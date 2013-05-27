@@ -20,6 +20,7 @@
  */
 
 #include "vfs.h"
+#include "errno.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -207,7 +208,7 @@ void vfs_list_devices()
 	struct vfs_entry *cur = first;
 	while(cur)
 	{
-		printf("%s ", cur->device_name);
+		printf("%s(%s) ", cur->device_name, cur->fs->fs_name);
 		cur = cur->next;
 	}
 }
@@ -316,9 +317,26 @@ FILE *fopen(const char *path, const char *mode)
 {
 	char **p;
 	struct vfs_entry *ve;
+
+	if(path == (void *)0)
+	{
+		errno = EFAULT;
+		return (void*)0;
+	}
+
 	p = split_dir(path, &ve);
 	if(p == (void *)0)
+	{
+		errno = EFAULT;
 		return (void *)0;
+	}
+
+	if(NULL == p[0]) {
+		// if there are no entries, the code below frees a random ptr
+		free_split_dir(p);
+		errno = EFAULT;
+		return NULL;
+	}
 
 	// Trim off the last entry
 	char **p_iter = p;
