@@ -445,3 +445,13 @@ printf(const char *fmt, ...)
 	va_end(ap);
 }
 
+/* Thanks to James Cone (https://github.com/JamesC1) for this */
+void
+sprintf(char *buffer, const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	kvprintf(fmt, NULL, (void *)buffer, 10, ap);
+	va_end(ap);
+}
