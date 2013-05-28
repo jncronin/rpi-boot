@@ -1266,7 +1266,7 @@ int sd_card_init(struct block_device **dev)
 
     // Prepare the device structure
 	struct emmc_block_dev *ret;
-	if(*dev == 0)
+	if(*dev == NULL)
 		ret = (struct emmc_block_dev *)malloc(sizeof(struct emmc_block_dev));
 	else
 		ret = (struct emmc_block_dev *)*dev;

@@ -60,7 +60,7 @@ void libfs_init()
 #endif
 
 #ifdef ENABLE_SD
-	struct block_device *sd_dev;
+	struct block_device *sd_dev = NULL;
 	if(sd_card_init(&sd_dev) == 0)
 	{
 		struct block_device *c_dev = sd_dev;
