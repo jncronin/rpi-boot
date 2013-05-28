@@ -35,10 +35,14 @@ struct fs {
 
 	FILE *(*fopen)(struct fs *, struct dirent *, const char *mode);
 	size_t (*fread)(struct fs *, void *ptr, size_t size, size_t nmemb, FILE *stream);
+	size_t (*fwrite)(struct fs *, void *ptr, size_t size, size_t nmemb, FILE *stream);
 	int (*fclose)(struct fs *, FILE *fp);
 
 	struct dirent *(*read_directory)(struct fs *, char **name);
 };
+
+int register_fs(struct block_device *dev, int part_id);
+int fs_interpret_mode(const char *mode);
 
 #endif
 

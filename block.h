@@ -39,6 +39,7 @@ struct block_device {
 	int (*read)(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t block_num);
 	int (*write)(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t block_num);
 	size_t block_size;
+	size_t num_blocks;
 
 	struct fs *fs;
 };

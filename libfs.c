@@ -19,8 +19,13 @@
  * THE SOFTWARE.
  */
 
+#include <string.h>
 #include "block.h"
 #include "vfs.h"
+#include "util.h"
+
+// Space for 32 x 512 byte cache areas
+#define BLOCK_CACHE_SIZE	0x4000
 
 #ifdef ENABLE_SD
 int sd_card_init(struct block_device **dev);
@@ -43,6 +48,9 @@ int ext2_init(struct block_device *, struct fs **);
 #ifdef ENABLE_NOFS
 int nofs_init(struct block_device *, struct fs **);
 #endif
+#ifdef ENABLE_BLOCK_CACHE
+int cache_init(struct block_device *parent, struct block_device **dev, uintptr_t cache_start, size_t cache_length);
+#endif
 
 void libfs_init()
 {
@@ -55,8 +63,14 @@ void libfs_init()
 	struct block_device *sd_dev;
 	if(sd_card_init(&sd_dev) == 0)
 	{
+		struct block_device *c_dev = sd_dev;
+#ifdef ENABLE_BLOCK_CACHE
+		uintptr_t cache_start = alloc_buf(BLOCK_CACHE_SIZE);
+		if(cache_start != 0)
+			cache_init(sd_dev, &c_dev, cache_start, BLOCK_CACHE_SIZE);
+#endif
 #ifdef ENABLE_MBR
-		read_mbr(sd_dev, (void*)0, (void*)0);
+		read_mbr(c_dev, (void*)0, (void*)0);
 #endif
 	}
 #endif
@@ -87,8 +101,10 @@ int register_fs(struct block_device *dev, int part_id)
 				break;
 #endif
 #ifdef ENABLE_NOFS
-			if(nofs_init(dev, &dev->fs) == 0)
-				break;
+			// Don't automatically assume nofs as there is no way of ensuring
+			//  the partition is of this type (no magic in the superblock)
+			//if(nofs_init(dev, &dev->fs) == 0)
+			//	break;
 #endif
 			break;
 
@@ -130,4 +146,21 @@ int register_fs(struct block_device *dev, int part_id)
 		return -1;
 }
 
+int interpret_mode(const char *mode)
+{
+	// Interpret mode arguments
+	if(!strcmp(mode, "r"))
+		return VFS_MODE_R;
+	if(!strcmp(mode, "r+"))
+		return VFS_MODE_RW;
+	if(!strcmp(mode, "w"))
+		return VFS_MODE_W | VFS_MODE_CREATE;
+	if(!strcmp(mode, "w+"))
+		return VFS_MODE_RW | VFS_MODE_CREATE;
+	if(!strcmp(mode, "a"))
+		return VFS_MODE_W | VFS_MODE_APPEND | VFS_MODE_CREATE;
+	if(!strcmp(mode, "a+"))
+		return VFS_MODE_RW | VFS_MODE_APPEND | VFS_MODE_CREATE;
+	return 0;
+}
 

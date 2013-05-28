@@ -22,13 +22,38 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include "dwc_usb.h"
+#define MAX_BRK 0xf0000
 
-#define MAX_BRK DWC_USB_FIFO_START
+#ifdef ENABLE_USB
+#include "dwc_usb.h"
+#define MAX_BUF DWC_USB_FIFO_START
+#else
+#define MAX_BUF 0x100000
+#endif
 
 extern char _end;
 
 uint32_t cur_brk = 0;
+uintptr_t cur_buf = MAX_BRK;
+
+uintptr_t alloc_buf(size_t size)
+{
+	uintptr_t old_buf = cur_buf;
+	
+	cur_buf += size;
+	if(cur_buf > MAX_BUF)
+	{
+		cur_buf = old_buf;
+		return 0;
+	}
+	// Align up to a 512 byte value
+	if(cur_buf & 0x1ff)
+	{
+		cur_buf &= ~0x1ff;
+		cur_buf += 0x200;
+	}
+	return old_buf;
+}
 
 void *sbrk(uint32_t increment)
 {

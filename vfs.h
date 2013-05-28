@@ -41,10 +41,17 @@ struct vfs_entry
     struct vfs_entry *next;
 };
 
+#define VFS_MODE_R		1
+#define VFS_MODE_W		2
+#define VFS_MODE_RW		3
+#define VFS_MODE_APPEND	4
+#define VFS_MODE_CREATE	8
+
 struct vfs_file
 {
     struct fs *fs;
     long pos;
+	int mode;
     void *opaque;
     long len;
 };

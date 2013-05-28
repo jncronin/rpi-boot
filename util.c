@@ -20,6 +20,7 @@
  */
 
 #include <stdint.h>
+#include <string.h>
 #include "util.h"
 
 // Support for unaligned data access
@@ -77,3 +78,13 @@ uint32_t byte_swap(uint32_t in)
     return ret;
 }
 
+void *qmemcpy(void *dest, void *src, size_t n)
+{
+	// Can only use quick_memcpy if dest, src and n are multiples
+	//  of 16
+	if((((uintptr_t)dest & 0xf) == 0) && (((uintptr_t)src & 0xf) == 0) &&
+		((n & 0xf) == 0))
+		return quick_memcpy(dest, src, n);
+	else
+		return memcpy(dest, src, n);
+}

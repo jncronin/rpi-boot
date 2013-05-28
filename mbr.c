@@ -47,8 +47,6 @@ static char driver_name[] = "mbr";
 static int mbr_read(struct block_device *, uint8_t *buf, size_t buf_size, uint32_t starting_block);
 static int mbr_write(struct block_device *, uint8_t *buf, size_t buf_size, uint32_t starting_block);
 
-void register_fs(struct block_device *dev, int part_id);
-
 int read_mbr(struct block_device *parent, struct block_device ***partitions, int *part_count)
 {
 	(void)partitions;
@@ -63,6 +61,9 @@ int read_mbr(struct block_device *parent, struct block_device ***partitions, int
 
 	/* Read the first 512 bytes */
 	uint8_t *block_0 = (uint8_t *)malloc(512);
+	if(block_0 == NULL)
+		return -1;
+
 #ifdef MBR_DEBUG
 	printf("MBR: reading block 0 from device %s\n", parent->device_name);
 #endif
@@ -146,7 +147,7 @@ int read_mbr(struct block_device *parent, struct block_device ***partitions, int
 				(struct mbr_block_dev *)malloc(sizeof(struct mbr_block_dev));
 			memset(d, 0, sizeof(struct mbr_block_dev));
 			d->bd.driver_name = driver_name;
-			char *dev_name = (char *)malloc(strlen(parent->device_name + 2));
+			char *dev_name = (char *)malloc(strlen(parent->device_name) + 3);
 			strcpy(dev_name, parent->device_name);
 			dev_name[strlen(parent->device_name)] = '_';
 			dev_name[strlen(parent->device_name) + 1] = '0' + i;

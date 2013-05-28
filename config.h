@@ -54,3 +54,9 @@
 
 /* Enable console log file support */
 #undef ENABLE_CONSOLE_LOGFILE
+
+/* Enable block device cache support */
+#define ENABLE_BLOCK_CACHE
+
+/* Enable write-back cache support (currently not implemented) */
+#undef ENABLE_BLOCK_CACHE_WB

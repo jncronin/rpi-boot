@@ -33,6 +33,9 @@ void write_halfword(uint16_t val, uint8_t *buf, int offset);
 void write_byte(uint8_t val, uint8_t *buf, int offset);
 
 void *quick_memcpy(void *dest, void *src, size_t n);
+void *qmemcpy(void *dest, void *src, size_t n);
+
+uintptr_t alloc_buf(size_t size);
 
 uint32_t byte_swap(uint32_t in);
 

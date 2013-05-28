@@ -1732,7 +1732,8 @@ static int sd_ensure_data_mode(struct emmc_block_dev *edev)
 	}
 
 #ifdef EMMC_DEBUG
-	printf("SD: ensure_data_mode() obtaining status register: ");
+	printf("SD: ensure_data_mode() obtaining status register for card_rca %08x: ",
+		edev->card_rca);
 #endif
 
     sd_issue_command(edev, SEND_STATUS, edev->card_rca << 16, 500000);
