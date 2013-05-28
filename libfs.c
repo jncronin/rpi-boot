@@ -20,6 +20,7 @@
  */
 
 #include <string.h>
+#include <stdint.h>
 #include "block.h"
 #include "vfs.h"
 #include "util.h"
@@ -164,3 +165,30 @@ int interpret_mode(const char *mode)
 	return 0;
 }
 
+/* The fread/fwrite() functions in filesystems code shares a lot of common functionality
+ * We provide that here
+ * There are essentially two types of filesystem as regards to indexing blocks
+ * within a file.
+ * Assume a file contains n blocks and we want block i.
+ * Filesystems like ext2, nofs can tell us the block number from i
+ * Ones like FAT need to know the block number i - 1 and work it out from there
+ *
+ * Thus, if the block number can be calculated from i, can_index_blocks is set
+ * to 1.
+ *
+ * fs_fread fills in as many of the parameters of get_next_block_num as it can
+ */
+
+int fs_fread(uint32_t (*get_next_block_num)(uint32_t cur_block, int block_idx),
+	struct block_device *dev, void *ptr, size_t byte_size, FILE *stream,
+	int can_index_blocks)
+{
+	(void)get_next_block_num;
+	(void)dev;
+	(void)ptr;
+	(void)byte_size;
+	(void)stream;
+	(void)can_index_blocks;
+	return 0;
+
+}
