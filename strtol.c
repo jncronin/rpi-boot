@@ -32,17 +32,9 @@
 #include <limits.h>
 #include <errno.h>
 #include <stdlib.h>
+#include <ctype.h>
 
 typedef void * locale_t;
-
-static int isspace(int c)
-{
-	if((c == ' ') || (c == '\f') || (c =='\n') || (c == '\r') ||
-			(c == '\t') || (c == '\v'))
-		return 1;
-	else
-		return 0;
-}
 
 /*
  * Convert a string to a long integer.
