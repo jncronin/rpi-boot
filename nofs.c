@@ -68,6 +68,9 @@ static size_t nofs_fread(struct fs *fs, void *ptr, size_t byte_size, FILE *strea
 static size_t nofs_fwrite(struct fs *fs, void *ptr, size_t byte_size, FILE *stream);
 static int nofs_fclose(struct fs *fs, FILE *fp);
 static FILE *nofs_fopen(struct fs *fs, struct dirent *path, const char *mode);
+static long nofs_fsize(FILE *fp);
+static int nofs_fseek(FILE *stream, long offset, int whence);
+static long nofs_ftell(FILE *fp);
 
 int nofs_init(struct block_device *parent, struct fs **fs)
 {
@@ -86,6 +89,9 @@ int nofs_init(struct block_device *parent, struct fs **fs)
 	nofs->b.fread = nofs_fread;
 	nofs->b.fwrite = nofs_fwrite;
 	nofs->b.fclose = nofs_fclose;
+	nofs->b.fseek = nofs_fseek;
+	nofs->b.fsize = nofs_fsize;
+	nofs->b.ftell = nofs_ftell;
 	nofs->b.read_directory = nofs_read_directory;
 	nofs->b.block_size = parent->block_size;
 
@@ -281,4 +287,38 @@ static int nofs_fclose(struct fs *fs, FILE *fp)
 	(void)fs;
 	(void)fp;
 	return 0;
+}
+
+static long nofs_fsize(FILE *fp)
+{
+	return fp->len - 3;
+}
+
+static int nofs_fseek(FILE *stream, long offset, int whence)
+{
+	switch(whence)
+	{
+		case SEEK_SET:
+			stream->pos = offset + 3;
+			break;
+		case SEEK_END:
+			stream->pos = stream->len - offset;
+			break;
+		case SEEK_CUR:
+			stream->pos += offset;
+			break;
+		default:
+			return -1;
+	}
+
+	if(stream->pos < 3)
+		stream->pos = 3;
+	if(stream->pos > stream->len)
+		stream->pos = stream->len;
+	return 0;
+}
+
+static long nofs_ftell(FILE *fp)
+{
+	return fp->pos - 3;
 }
