@@ -44,7 +44,7 @@ struct timer_wait *register_timer(useconds_t usec)
 	}
 	uint32_t cur_timer = mmio_read(TIMER_CLO);
 	uint32_t trig = cur_timer + (uint32_t)usec;
-	struct timer_wait *tw = malloc(sizeof(struct timer_wait));
+	struct timer_wait *tw = (struct timer_wait *)malloc(sizeof(struct timer_wait));
 	tw->trigger_value = trig;
 	if(trig > cur_timer)
 		tw->rollover = 0;

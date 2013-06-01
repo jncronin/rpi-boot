@@ -109,9 +109,9 @@ int ramdisk_init(uintptr_t address, size_t size, int fs_type, char *name):
 int register_custom_output_function(int (*putc_function)(int c)):
 	Register the putc() function to call for the 'custom' output method.
 
-int register_log_file(FILE *fp, int buffer):
+int register_log_file(FILE *fp, size_t buffer_size):
 	Register the file to output the log to if the 'log' output method is
-	enabled.  If buffer is > 0 it is the number of bytes to buffer
+	enabled.  If buffer_size is > 0 it is the number of bytes to buffer
 	before writing to the output stream.  A call to fclose() will flush
 	the buffer to the stream.
 

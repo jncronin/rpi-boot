@@ -27,6 +27,10 @@ struct vfs_file;
 #include "dirent.h"
 #include "multiboot.h"
 
+#ifndef EOF
+#define EOF 0xff
+#endif
+
 #ifdef FILE
 #undef FILE
 #endif
@@ -58,7 +62,7 @@ struct vfs_file
     void *opaque;
     long len;
 	int flags;
-	void (*fflush_cb)(FILE *f);
+	int (*fflush_cb)(FILE *f);
 };
 
 int fseek(FILE *stream, long offset, int whence);

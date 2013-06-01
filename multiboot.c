@@ -114,12 +114,12 @@ int ramdisk_init(uintptr_t address, size_t size, int fs_type, char *name)
 }
 #endif
 
-int register_log_file(FILE *fp, int buffer);
+int register_log_file(FILE *fp, size_t buffer_size);
 FILE *get_log_file();
 #ifndef ENABLE_CONSOLE_LOGFILE
-int register_log_file(FILE *fp, int buffer)
+int register_log_file(FILE *fp, size_t buffer_size)
 {
-	(void)fp; (void)buffer;
+	(void)fp; (void)buffer_size;
 	return -1;
 }
 FILE *get_log_file()

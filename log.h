@@ -19,18 +19,9 @@
  * THE SOFTWARE.
  */
 
-#ifndef STDLIB_H
-#define STDLIB_H
+#ifndef LOG_H
+#define LOG_H
 
-#include <stddef.h>
-#include <stdint.h>
-
-void abort(void);
-void *malloc(size_t size);
-void *realloc(void *ptr, size_t size);
-void free(void *ptr);
-long strtol(const char * restrict nptr, char ** restrict endptr, int base);
-long long strtoll(const char * restrict nptr, char ** restrict endptr, int base);
+int log_putc(int c);
 
 #endif
-

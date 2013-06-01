@@ -22,6 +22,7 @@
 #include "output.h"
 #include "uart.h"
 #include "console.h"
+#include "log.h"
 
 rpi_boot_output_state ostate;
 int (*custom_putc)(int c) = NULL;

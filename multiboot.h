@@ -107,7 +107,7 @@ struct multiboot_arm_functions
 	void (*output_disable_custom)();
 	void (*output_enable_log)();
 	void (*output_disable_log)();
-	int (*register_log_file)(FILE *fp, int buffer);
+	int (*register_log_file)(FILE *fp, size_t buffer_size);
 	FILE *(*get_log_file)();
 };
 

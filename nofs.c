@@ -39,8 +39,6 @@
 #include <errno.h>
 #include "vfs.h"
 
-// Define the EOF character to use (255 as per glibc)
-#define EOF 0xff
 
 // Define to be the EOF marker to use
 //#define EOF_MARK		{ EOF }
