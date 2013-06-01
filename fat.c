@@ -110,8 +110,13 @@ struct fat_BS
 
 static struct dirent *fat_read_dir(struct fat_fs *fs, struct dirent *d);
 struct dirent *fat_read_directory(struct fs *fs, char **name);
-static size_t fat_read_from_file(struct fat_fs *fs, uint32_t starting_cluster, uint8_t *buf,
-		size_t byte_count, size_t offset);
+static uint32_t fat_get_next_bdev_block_num(uint32_t f_block_idx, FILE *s, void *opaque, int add_blocks);
+
+struct fat_file_block_offset
+{
+	uint32_t f_block;
+	uint32_t cluster;
+};
 
 static const char *fat_names[] = { "FAT12", "FAT16", "FAT32", "VFAT" };
 
@@ -140,15 +145,17 @@ static FILE *fat_fopen(struct fs *fs, struct dirent *path, const char *mode)
 	return ret;
 }
 
-static size_t fat_fread(struct fs *fs, void *ptr, size_t size, size_t nmemb, FILE *stream)
+static size_t fat_fread(struct fs *fs, void *ptr, size_t byte_size, FILE *stream)
 {
 	if(stream->fs != fs)
 		return -1;
 	if(stream->opaque == (void *)0)
 		return -1;
 
-	return fat_read_from_file((struct fat_fs *)fs, (uint32_t)stream->opaque, (uint8_t *)ptr,
-			size * nmemb, (size_t)stream->pos);
+	struct fat_file_block_offset opaque;
+	opaque.cluster = (uint32_t)stream->opaque;
+	opaque.f_block = 0;
+	return fs_fread(fat_get_next_bdev_block_num, fs, ptr, byte_size, stream, (void*)&opaque);
 }
 
 static int fat_fclose(struct fs *fs, FILE *fp)
@@ -400,75 +407,28 @@ struct dirent *fat_read_directory(struct fs *fs, char **name)
 	return cur_dir;
 }
 
-static size_t fat_read_from_file(struct fat_fs *fs, uint32_t starting_cluster, uint8_t *buf,
-		size_t byte_count, size_t offset)
+static uint32_t fat_get_next_bdev_block_num(uint32_t f_block_idx, FILE *s, void *opaque, int add_blocks)
 {
-	uint32_t cur_cluster = starting_cluster;
-	size_t cluster_size = fs->bytes_per_sector * fs->sectors_per_cluster;
+	struct fat_file_block_offset *ffbo = (struct fat_file_block_offset *)opaque;
 
-	size_t location_in_file = 0;
-	int buf_ptr = 0;
-	while(cur_cluster < 0x0ffffff8)
+	// Iterate through the cluster chain until we reach the appropriate one
+	while((ffbo->f_block != f_block_idx) && (ffbo->cluster < 0x0ffffff8))
 	{
-#ifdef FAT_DEBUG
-		printf("FAT: read_from_file: reading cluster %i, cluster_size %i\n", cur_cluster,
-				cluster_size);
-#endif
-		if((location_in_file + cluster_size) > offset)
-		{
-			if(location_in_file < (offset + byte_count))
-			{
-				// This cluster contains part of the requested file
-				// Load it
-				
-				uint32_t sector = get_sector(fs, cur_cluster);
-				uint8_t *read_buf = (uint8_t *)malloc(cluster_size);
-				int rb_ret = block_read(fs->b.parent, read_buf, cluster_size, sector);
-
-				if(rb_ret < 0)
-					return rb_ret;
-
-				// Now decide how much of this sector we need to load
-				int len;
-				int c_ptr;
-
-				if(offset >= location_in_file)
-				{
-					// This is the first cluster containing the file
-					buf_ptr = 0;
-					c_ptr = offset - location_in_file;
-					len = byte_count;
-					if(len > (int)cluster_size)
-						len = cluster_size;
-					if(len > (int)(cluster_size - c_ptr))
-						len = cluster_size - c_ptr;
-				}
-				else
-				{
-					// We are starting somewhere within the file
-					c_ptr = 0;
-					len = byte_count - buf_ptr;
-					if(len > (int)cluster_size)
-						len = cluster_size;
-					if(len > (int)(cluster_size - c_ptr))
-						len = cluster_size - c_ptr;
-					if(len > (int)(byte_count - buf_ptr))
-						len = byte_count - buf_ptr;
-				}
-
-				// Copy to the buffer
-				memcpy(&buf[buf_ptr], &read_buf[c_ptr], len);
-				free(read_buf);
-
-				buf_ptr += len;
-			}
-		}
-
-		cur_cluster = get_next_fat_entry(fs, cur_cluster);
-		location_in_file += cluster_size;
+		ffbo->cluster = get_next_fat_entry((struct fat_fs *)s->fs, ffbo->cluster);
+		ffbo->f_block++;
 	}
 
-	return buf_ptr;
+	if(ffbo->cluster < 0x0ffffff8)
+		return get_sector((struct fat_fs *)s->fs, ffbo->cluster);
+	else
+	{
+		if(add_blocks)
+		{
+			printf("FAT: request to extend cluster chain not currently supported\n");
+		}
+		s->flags |= VFS_FLAGS_EOF;
+		return 0xffffffff;
+	}
 }
 
 struct dirent *fat_read_dir(struct fat_fs *fs, struct dirent *d)

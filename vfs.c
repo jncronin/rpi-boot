@@ -271,7 +271,7 @@ size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream)
 	size_t nmemb_to_read = bytes_to_read / size;
 	bytes_to_read = nmemb_to_read * size;
 
-	bytes_to_read = stream->fs->fread(stream->fs, ptr, 1, bytes_to_read, stream);
+	bytes_to_read = stream->fs->fread(stream->fs, ptr, bytes_to_read, stream);
 	return bytes_to_read / size;
 }
 

@@ -47,6 +47,8 @@ struct vfs_entry
 #define VFS_MODE_APPEND	4
 #define VFS_MODE_CREATE	8
 
+#define VFS_FLAGS_EOF	1
+
 struct vfs_file
 {
     struct fs *fs;
@@ -54,6 +56,7 @@ struct vfs_file
 	int mode;
     void *opaque;
     long len;
+	int flags;
 };
 
 int fseek(FILE *stream, long offset, int whence);

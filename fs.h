@@ -36,8 +36,8 @@ struct fs {
 	size_t block_size;
 
 	FILE *(*fopen)(struct fs *, struct dirent *, const char *mode);
-	size_t (*fread)(struct fs *, void *ptr, size_t size, size_t nmemb, FILE *stream);
-	size_t (*fwrite)(struct fs *, void *ptr, size_t size, size_t nmemb, FILE *stream);
+	size_t (*fread)(struct fs *, void *ptr, size_t byte_size, FILE *stream);
+	size_t (*fwrite)(struct fs *, void *ptr, size_t byte_size, FILE *stream);
 	int (*fclose)(struct fs *, FILE *fp);
 
 	struct dirent *(*read_directory)(struct fs *, char **name);
@@ -45,6 +45,12 @@ struct fs {
 
 int register_fs(struct block_device *dev, int part_id);
 int fs_interpret_mode(const char *mode);
+size_t fs_fread(uint32_t (*get_next_bdev_block_num)(uint32_t f_block_idx, FILE *s, void *opaque, int add_blocks),
+	struct fs *fs, void *ptr, size_t byte_size,
+	FILE *stream, void *opaque);
+size_t fs_fwrite(uint32_t (*get_next_bdev_block_num)(uint32_t f_block_idx, FILE *s, void *opaque, int add_blocks),
+	struct fs *fs, void *ptr, size_t byte_size,
+	FILE *stream, void *opaque);
 
 #endif
 

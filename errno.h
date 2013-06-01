@@ -31,6 +31,7 @@ extern int errno;
 #define EFAULT		-5
 #define EROFS		-6
 #define ERANGE		-7
+#define ENOSPC		-8
 
 #endif
 

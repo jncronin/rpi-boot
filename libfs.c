@@ -148,7 +148,7 @@ int register_fs(struct block_device *dev, int part_id)
 		return -1;
 }
 
-int interpret_mode(const char *mode)
+int fs_interpret_mode(const char *mode)
 {
 	// Interpret mode arguments
 	if(!strcmp(mode, "r"))
@@ -180,7 +180,7 @@ int interpret_mode(const char *mode)
  * fs_fread fills in as many of the parameters of get_next_block_num as it can
  */
 
-int fs_fread(uint32_t (*get_next_bdev_block_num)(uint32_t f_block_idx, FILE *s, void **opaque),
+size_t fs_fread(uint32_t (*get_next_bdev_block_num)(uint32_t f_block_idx, FILE *s, void *opaque, int add_blocks),
 	struct fs *fs, void *ptr, size_t byte_size,
 	FILE *stream, void *opaque)
 {
@@ -212,7 +212,9 @@ int fs_fread(uint32_t (*get_next_bdev_block_num)(uint32_t f_block_idx, FILE *s, 
 		uint32_t block_segment_length = last_block_offset - start_block_offset;
 
 		// Get the filesystem block number
-		uint32_t cur_bdev_block = get_next_bdev_block_num(cur_block, stream, &opaque);
+		uint32_t cur_bdev_block = get_next_bdev_block_num(cur_block, stream, opaque, 0);
+		if(cur_bdev_block == 0xffffffff)
+			return total_bytes_read;
 
 		// If we can load an entire block, load it directly, else we have
 		//  to load to a buffer somewhere and copy appropriately
@@ -255,4 +257,98 @@ int fs_fread(uint32_t (*get_next_bdev_block_num)(uint32_t f_block_idx, FILE *s, 
 	}
 
 	return total_bytes_read;
+}
+
+size_t fs_fwrite(uint32_t (*get_next_bdev_block_num)(uint32_t f_block_idx, FILE *s, void *opaque, int add_blocks),
+	struct fs *fs, void *ptr, size_t byte_size,
+	FILE *stream, void *opaque)
+{
+	uint32_t fs_block_size = fs->block_size;
+
+	// Files opened in mode "a+" always set the stream position to the end of the file before writing
+	if((stream->mode & VFS_MODE_APPEND) && (stream->mode & VFS_MODE_R))
+		stream->pos = stream->len;
+	
+	// Determine first and last block indices within file
+	uint32_t first_f_block_idx = stream->pos / fs_block_size;
+	uint32_t first_f_block_offset = stream->pos % fs_block_size;
+	uint32_t last_pos = stream->pos + byte_size;
+	uint32_t last_f_block_idx = last_pos / fs_block_size;
+	uint32_t last_f_block_offset = last_pos % fs_block_size;
+
+	// Now iterate through the blocks
+	uint32_t cur_block = first_f_block_idx;
+	uint8_t *save_buf = (uint8_t *)ptr;
+	int total_bytes_written = 0;
+
+	while(cur_block <= last_f_block_idx)
+	{
+		uint32_t start_block_offset = 0;
+		uint32_t last_block_offset = fs_block_size;
+
+		// If we're the first block, adjust start_block_idx appropriately
+		if(cur_block == first_f_block_idx)
+			start_block_offset = first_f_block_offset;
+		// If we're the last block, adjust last_block_idx appropriately
+		if(cur_block == last_f_block_idx)
+			last_block_offset = last_f_block_offset;
+
+		uint32_t block_segment_length = last_block_offset - start_block_offset;
+
+		// Get the filesystem block number
+		uint32_t cur_bdev_block = get_next_bdev_block_num(cur_block, stream, opaque, 1);
+		if(cur_bdev_block == 0xffffffff)
+			return total_bytes_written;
+
+		// If we can save an entire block, save it directly, else we have
+		//  to load to a buffer somewhere, edit, and save
+		if((start_block_offset == 0) && (block_segment_length == fs_block_size))
+		{
+			size_t bytes_written = block_write(fs->parent, save_buf, fs_block_size, cur_bdev_block);
+			total_bytes_written += bytes_written;
+			stream->pos += bytes_written;
+			if(stream->pos > stream->len)
+				stream->len = stream->pos;
+			save_buf += bytes_written;
+			if(bytes_written != fs_block_size)
+				return total_bytes_written;
+		}
+		else
+		{
+			// We have to load to a temporary buffer
+			uint8_t *temp_buf = (uint8_t *)malloc(fs_block_size);
+			size_t bytes_read = block_read(fs->parent, temp_buf, fs_block_size, cur_bdev_block);
+			if(bytes_read != fs_block_size)
+				return total_bytes_written;
+
+			// Edit the buffer
+			qmemcpy(&temp_buf[start_block_offset], save_buf, block_segment_length);
+
+			// Save the buffer
+			size_t bytes_written = block_write(fs->parent, temp_buf, fs_block_size, cur_bdev_block);
+			
+			if(last_block_offset > bytes_written)
+				last_block_offset = bytes_written;
+			if(last_block_offset < start_block_offset)
+				block_segment_length = 0;
+			else
+				block_segment_length = last_block_offset - start_block_offset;
+
+			// Increment the pointers
+			total_bytes_written += block_segment_length;
+			stream->pos += block_segment_length;
+			if(stream->pos > stream->len)
+				stream->len = stream->pos;
+			save_buf += block_segment_length;
+
+			free(temp_buf);
+
+			if(bytes_written != fs_block_size)
+				return total_bytes_written;
+		}
+
+		cur_block++;
+	}
+
+	return total_bytes_written;
 }

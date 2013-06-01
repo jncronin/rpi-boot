@@ -282,14 +282,14 @@ static uint32_t sd_commands[] = {
     SD_CMD_INDEX(15),
     SD_CMD_INDEX(16) | SD_RESP_R1,
     SD_CMD_INDEX(17) | SD_RESP_R1 | SD_DATA_READ,
-    SD_CMD_INDEX(18) | SD_RESP_R1 | SD_DATA_READ | SD_CMD_MULTI_BLOCK,
+    SD_CMD_INDEX(18) | SD_RESP_R1 | SD_DATA_READ | SD_CMD_MULTI_BLOCK | SD_CMD_BLKCNT_EN,
     SD_CMD_INDEX(19) | SD_RESP_R1 | SD_DATA_READ,
     SD_CMD_INDEX(20) | SD_RESP_R1b,
     SD_CMD_RESERVED(21),
     SD_CMD_RESERVED(22),
     SD_CMD_INDEX(23) | SD_RESP_R1,
     SD_CMD_INDEX(24) | SD_RESP_R1 | SD_DATA_WRITE,
-    SD_CMD_INDEX(25) | SD_RESP_R1 | SD_DATA_WRITE | SD_CMD_MULTI_BLOCK,
+    SD_CMD_INDEX(25) | SD_RESP_R1 | SD_DATA_WRITE | SD_CMD_MULTI_BLOCK | SD_CMD_BLKCNT_EN,
     SD_CMD_RESERVED(26),
     SD_CMD_INDEX(27) | SD_RESP_R1 | SD_DATA_WRITE,
     SD_CMD_INDEX(28) | SD_RESP_R1b,
@@ -781,6 +781,11 @@ static void sd_issue_command_int(struct emmc_block_dev *dev, uint32_t cmd_reg, u
         uint32_t *cur_buf_addr = (uint32_t *)dev->buf;
         while(cur_block < dev->blocks_to_transfer)
         {
+#ifdef EMMC_DEBUG
+			if(dev->blocks_to_transfer > 1)
+				printf("SD: multi block transfer, awaiting block %i ready\n",
+				cur_block);
+#endif
             TIMEOUT_WAIT(mmio_read(EMMC_BASE + EMMC_INTERRUPT) & (wr_irpt | 0x8000), timeout);
             irpts = mmio_read(EMMC_BASE + EMMC_INTERRUPT);
             mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0xffff0000 | wr_irpt);
@@ -806,6 +811,10 @@ static void sd_issue_command_int(struct emmc_block_dev *dev, uint32_t cmd_reg, u
                 cur_byte_no += 4;
                 cur_buf_addr++;
             }
+
+#ifdef EMMC_DEBUG
+			printf("SD: block %i transfer complete\n", cur_block);
+#endif
 
             cur_block++;
         }

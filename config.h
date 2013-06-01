@@ -50,7 +50,7 @@
 #define ENABLE_RAMDISK
 
 /* Enable nofs filesystem support */
-#undef ENABLE_NOFS
+#define ENABLE_NOFS
 
 /* Enable console log file support */
 #undef ENABLE_CONSOLE_LOGFILE

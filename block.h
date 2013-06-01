@@ -44,8 +44,8 @@ struct block_device {
 	struct fs *fs;
 };
 
-int block_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t starting_block);
-int block_write(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t starting_block);
+size_t block_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t starting_block);
+size_t block_write(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t starting_block);
 
 #endif
 

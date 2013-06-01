@@ -102,10 +102,7 @@ struct ext2_inode {
 static struct dirent *ext2_read_directory(struct fs *fs, char **name);
 static struct dirent *ext2_read_dir(struct ext2_fs *fs, struct dirent *d);
 static FILE *ext2_fopen(struct fs *fs, struct dirent *path, const char *mode);
-static size_t ext2_fread(struct fs *fs, void *ptr, size_t size, size_t nmemb, FILE *stream);
-static size_t ext2_fread(struct fs *fs, void *ptr, size_t size, size_t nmemb, FILE *stream);
-static size_t ext2_read_from_file(struct ext2_fs *fs, uint32_t inode_idx,
-		uint8_t *buf, size_t byte_count, size_t offset);
+static size_t ext2_fread(struct fs *fs, void *ptr, size_t byte_size, FILE *stream);
 static struct ext2_inode *ext2_read_inode(struct ext2_fs *fs,
 		uint32_t inode_idx);
 
@@ -129,7 +126,7 @@ static uint8_t *read_block(struct ext2_fs *fs, uint32_t block_no)
 	return ret;
 }
 
-static uint32_t get_block_no_from_inode(struct ext2_fs *fs, struct ext2_inode *i, uint32_t index)
+static uint32_t get_block_no_from_inode(struct ext2_fs *fs, struct ext2_inode *i, uint32_t index, int add_blocks)
 {
 	// If the block index is < 12 use the direct block pointers
 	if(index < 12)
@@ -223,6 +220,11 @@ static uint32_t get_block_no_from_inode(struct ext2_fs *fs, struct ext2_inode *i
 				}
 				else
 				{
+					if(add_blocks)
+					{
+						printf("EXT2: request to extend file not currently supported\n");
+						return 0;
+					}
 					printf("EXT2: invalid block number\n");
 					return 0;
 				}
@@ -262,16 +264,23 @@ static FILE *ext2_fopen(struct fs *fs, struct dirent *path, const char *mode)
 	return ret;
 }
 
-static size_t ext2_fread(struct fs *fs, void *ptr, size_t size, size_t nmemb, FILE *stream)
+static uint32_t ext2_get_next_bdev_block_num(uint32_t f_block_idx, FILE *s, void *opaque, int add_blocks)
+{
+	return get_block_no_from_inode((struct ext2_fs *)s->fs, (struct ext2_inode *)opaque,
+		f_block_idx, add_blocks);
+}
+
+static size_t ext2_fread(struct fs *fs, void *ptr, size_t byte_size, FILE *stream)
 {
 	if(stream->fs != fs)
 		return -1;
 	if(stream->opaque == (void *)0)
 		return -1;
 
-	return ext2_read_from_file((struct ext2_fs *)fs,
-			(uint32_t)stream->opaque, (uint8_t *)ptr,
-			size * nmemb, (size_t)stream->pos);
+	struct ext2_inode *inode = ext2_read_inode((struct ext2_fs *)fs,
+		(uint32_t)stream->opaque);
+
+	return fs_fread(ext2_get_next_bdev_block_num, fs, ptr, byte_size, stream, (void *)inode);
 }
 
 static int ext2_fclose(struct fs *fs, FILE *fp)
@@ -449,93 +458,6 @@ struct dirent *ext2_read_directory(struct fs *fs, char **name)
 	return cur_dir;
 }
 
-static size_t ext2_read_from_file(struct ext2_fs *fs, uint32_t inode_idx,
-		uint8_t *buf, size_t byte_count, size_t offset)
-{
-	struct ext2_inode *inode = ext2_read_inode(fs, inode_idx);
-	if(!inode)
-		return -1;
-
-	size_t location_in_file = 0;
-	int buf_ptr = 0;
-
-	// Iterate through loading the blocks
-	uint32_t total_blocks = inode->size / fs->b.block_size;
-	uint32_t block_rem = inode->size % fs->b.block_size;
-	if(block_rem)
-		total_blocks++;
-
-	uint32_t cur_block_idx = 0;
-
-	while(cur_block_idx < total_blocks)
-	{
-		uint32_t block_no = get_block_no_from_inode(fs, inode,
-				cur_block_idx);
-
-		if((location_in_file + fs->b.block_size) > offset)
-		{
-			if(location_in_file < (offset + byte_count))
-			{
-				// This block contains part of the requested
-				// file.
-				// Load it
-
-				uint8_t *read_buf = read_block(fs, block_no);
-				if(!read_buf)
-				{
-					free(inode);
-					return -1;
-				}
-
-				// Now decide how much of this block we need
-				// to load
-				int len;
-				int c_ptr;
-
-				if(offset >= location_in_file)
-				{
-					// This is the first block containing
-					// the file
-
-					buf_ptr = 0;
-					c_ptr = offset - location_in_file;
-					len = byte_count;
-					if(len > (int)fs->b.block_size)
-						len = (int)fs->b.block_size;
-					if(len > (int)(fs->b.block_size - c_ptr))
-						len = fs->b.block_size - c_ptr;
-				}
-				else
-				{
-					// We are starting somewhere within
-					// the file
-					c_ptr = 0;
-					len = byte_count - buf_ptr;
-					if(len > (int)fs->b.block_size)
-						len = (int)fs->b.block_size;
-					if(len > (int)(fs->b.block_size - c_ptr))
-						len = fs->b.block_size - c_ptr;
-					if(len > (int)(byte_count - buf_ptr))
-						len = byte_count - buf_ptr;
-				}
-
-				// Copy to the buffer
-				memcpy(&buf[buf_ptr], &read_buf[c_ptr], len);
-				free(read_buf);
-
-				buf_ptr += len;
-			}
-		}
-
-		cur_block_idx++;
-		location_in_file += fs->b.block_size;
-	}
-
-	free(inode);
-
-	return buf_ptr;
-}
-
 struct dirent *ext2_read_dir(struct ext2_fs *fs, struct dirent *d)
 {
 	struct ext2_fs *ext2 = (struct ext2_fs *)fs;
@@ -561,7 +483,7 @@ struct dirent *ext2_read_dir(struct ext2_fs *fs, struct dirent *d)
 	while(cur_block_idx < total_blocks)
 	{
 		uint32_t block_no = get_block_no_from_inode(ext2, inode,
-				cur_block_idx);
+				cur_block_idx, 0);
 		uint8_t *block = read_block(ext2, block_no);
 
 		uint32_t total_block_size = ext2->b.block_size;
