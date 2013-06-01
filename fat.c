@@ -298,6 +298,7 @@ int fat_init(struct block_device *parent, struct fs **fs)
 		ret->root_dir_cluster = 2;
 	}
 
+	ret->b.block_size = ret->bytes_per_sector * ret->sectors_per_cluster;
 	*fs = (struct fs *)ret;
 	free(block_0);
 

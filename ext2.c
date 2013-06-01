@@ -49,7 +49,6 @@ struct ext2_fs {
 	uint32_t total_inodes;
 	uint32_t total_blocks;
 	uint32_t inode_size;
-	uint32_t block_size;
 	uint32_t inodes_per_group;
 	uint32_t blocks_per_group;
 	uint32_t total_groups;
@@ -114,13 +113,13 @@ static char ext2_name[] = "ext2";
 
 static uint32_t get_sector_num(struct ext2_fs *fs, uint32_t block_no)
 {
-	return block_no * fs->block_size / fs->b.parent->block_size;
+	return block_no * fs->b.block_size / fs->b.parent->block_size;
 }
 
 static uint8_t *read_block(struct ext2_fs *fs, uint32_t block_no)
 {
-	uint8_t *ret = (uint8_t *)malloc(fs->block_size);
-	int br_ret = block_read(fs->b.parent, ret, fs->block_size,
+	uint8_t *ret = (uint8_t *)malloc(fs->b.block_size);
+	int br_ret = block_read(fs->b.parent, ret, fs->b.block_size,
 			get_sector_num(fs, block_no));
 	if(br_ret < 0)
 	{
@@ -294,7 +293,7 @@ static struct ext2_inode *ext2_read_inode(struct ext2_fs *fs,
 	struct ext2_bgd *b = &fs->bgdt[block_idx];
 
 	// Now find which block in its inode table its in
-	uint32_t inodes_per_block = fs->block_size / fs->inode_size;
+	uint32_t inodes_per_block = fs->b.block_size / fs->inode_size;
 	block_idx = block_offset / inodes_per_block;
 	block_offset = block_offset % inodes_per_block;
 
@@ -352,7 +351,7 @@ int ext2_init(struct block_device *parent, struct fs **fs)
 	ret->total_blocks = *(uint32_t *)&sb[4];
 	ret->inodes_per_group = *(uint32_t *)&sb[40];
 	ret->blocks_per_group = *(uint32_t *)&sb[32];
-	ret->block_size = 1024 << *(uint32_t *)&sb[24];
+	ret->b.block_size = 1024 << *(uint32_t *)&sb[24];
 	ret->minor_version = *(int16_t *)&sb[62];
 	ret->major_version = *(int32_t *)&sb[76];
 
@@ -386,7 +385,7 @@ int ext2_init(struct block_device *parent, struct fs **fs)
 	}
 
 	ret->total_groups = i_calc_val;
-	ret->pointers_per_indirect_block = ret->block_size / 4;
+	ret->pointers_per_indirect_block = ret->b.block_size / 4;
 	ret->pointers_per_indirect_block_2 = ret->pointers_per_indirect_block *
 		ret->pointers_per_indirect_block;
 	ret->pointers_per_indirect_block_3 = ret->pointers_per_indirect_block_2 *
@@ -395,13 +394,13 @@ int ext2_init(struct block_device *parent, struct fs **fs)
 	// Read the block group descriptor table
 	ret->bgdt = (struct ext2_bgd *)malloc(ret->total_groups * sizeof(struct ext2_bgd));
 	int bgdt_block = 1;
-	if(ret->block_size == 1024)
+	if(ret->b.block_size == 1024)
 		bgdt_block = 2;
 
     uint32_t bgdt_size = ret->total_groups * sizeof(struct ext2_bgd);
     // round up to a multiple of block_size
-    if(bgdt_size % ret->block_size)
-        bgdt_size = (bgdt_size / ret->block_size + 1) * ret->block_size;
+    if(bgdt_size % ret->b.block_size)
+        bgdt_size = (bgdt_size / ret->b.block_size + 1) * ret->b.block_size;
 
 	block_read(parent, (uint8_t *)ret->bgdt, bgdt_size,
 			get_sector_num(ret, bgdt_block));
@@ -461,8 +460,8 @@ static size_t ext2_read_from_file(struct ext2_fs *fs, uint32_t inode_idx,
 	int buf_ptr = 0;
 
 	// Iterate through loading the blocks
-	uint32_t total_blocks = inode->size / fs->block_size;
-	uint32_t block_rem = inode->size % fs->block_size;
+	uint32_t total_blocks = inode->size / fs->b.block_size;
+	uint32_t block_rem = inode->size % fs->b.block_size;
 	if(block_rem)
 		total_blocks++;
 
@@ -473,7 +472,7 @@ static size_t ext2_read_from_file(struct ext2_fs *fs, uint32_t inode_idx,
 		uint32_t block_no = get_block_no_from_inode(fs, inode,
 				cur_block_idx);
 
-		if((location_in_file + fs->block_size) > offset)
+		if((location_in_file + fs->b.block_size) > offset)
 		{
 			if(location_in_file < (offset + byte_count))
 			{
@@ -501,10 +500,10 @@ static size_t ext2_read_from_file(struct ext2_fs *fs, uint32_t inode_idx,
 					buf_ptr = 0;
 					c_ptr = offset - location_in_file;
 					len = byte_count;
-					if(len > (int)fs->block_size)
-						len = (int)fs->block_size;
-					if(len > (int)(fs->block_size - c_ptr))
-						len = fs->block_size - c_ptr;
+					if(len > (int)fs->b.block_size)
+						len = (int)fs->b.block_size;
+					if(len > (int)(fs->b.block_size - c_ptr))
+						len = fs->b.block_size - c_ptr;
 				}
 				else
 				{
@@ -512,10 +511,10 @@ static size_t ext2_read_from_file(struct ext2_fs *fs, uint32_t inode_idx,
 					// the file
 					c_ptr = 0;
 					len = byte_count - buf_ptr;
-					if(len > (int)fs->block_size)
-						len = (int)fs->block_size;
-					if(len > (int)(fs->block_size - c_ptr))
-						len = fs->block_size - c_ptr;
+					if(len > (int)fs->b.block_size)
+						len = (int)fs->b.block_size;
+					if(len > (int)(fs->b.block_size - c_ptr))
+						len = fs->b.block_size - c_ptr;
 					if(len > (int)(byte_count - buf_ptr))
 						len = byte_count - buf_ptr;
 				}
@@ -529,7 +528,7 @@ static size_t ext2_read_from_file(struct ext2_fs *fs, uint32_t inode_idx,
 		}
 
 		cur_block_idx++;
-		location_in_file += fs->block_size;
+		location_in_file += fs->b.block_size;
 	}
 
 	free(inode);
@@ -552,8 +551,8 @@ struct dirent *ext2_read_dir(struct ext2_fs *fs, struct dirent *d)
 	struct ext2_inode *inode = ext2_read_inode(ext2, inode_idx);
 
 	// Iterate through loading the blocks
-	uint32_t total_blocks = inode->size / ext2->block_size;
-	uint32_t block_rem = inode->size % ext2->block_size;
+	uint32_t total_blocks = inode->size / ext2->b.block_size;
+	uint32_t block_rem = inode->size % ext2->b.block_size;
 	if(block_rem)
 		total_blocks++;
 
@@ -565,7 +564,7 @@ struct dirent *ext2_read_dir(struct ext2_fs *fs, struct dirent *d)
 				cur_block_idx);
 		uint8_t *block = read_block(ext2, block_no);
 
-		uint32_t total_block_size = ext2->block_size;
+		uint32_t total_block_size = ext2->b.block_size;
 		// If inode->size is not a complete multiple of
 		// ext2->block_size then only read part of the last block
 		if((cur_block_idx == (total_blocks - 1)) && block_rem)

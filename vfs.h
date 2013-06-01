@@ -29,8 +29,8 @@ struct vfs_file;
 
 #ifdef FILE
 #undef FILE
-#define FILE struct vfs_file
 #endif
+#define FILE struct vfs_file
 
 #include "fs.h"
 

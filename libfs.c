@@ -21,6 +21,7 @@
 
 #include <string.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include "block.h"
 #include "vfs.h"
 #include "util.h"
@@ -179,16 +180,79 @@ int interpret_mode(const char *mode)
  * fs_fread fills in as many of the parameters of get_next_block_num as it can
  */
 
-int fs_fread(uint32_t (*get_next_block_num)(uint32_t cur_block, int block_idx),
-	struct block_device *dev, void *ptr, size_t byte_size, FILE *stream,
-	int can_index_blocks)
+int fs_fread(uint32_t (*get_next_bdev_block_num)(uint32_t f_block_idx, FILE *s, void **opaque),
+	struct fs *fs, void *ptr, size_t byte_size,
+	FILE *stream, void *opaque)
 {
-	(void)get_next_block_num;
-	(void)dev;
-	(void)ptr;
-	(void)byte_size;
-	(void)stream;
-	(void)can_index_blocks;
-	return 0;
+	uint32_t fs_block_size = fs->block_size;
 
+	// Determine first and last block indices within file
+	uint32_t first_f_block_idx = stream->pos / fs_block_size;
+	uint32_t first_f_block_offset = stream->pos % fs_block_size;
+	uint32_t last_pos = stream->pos + byte_size;
+	uint32_t last_f_block_idx = last_pos / fs_block_size;
+	uint32_t last_f_block_offset = last_pos % fs_block_size;
+
+	// Now iterate through the blocks
+	uint32_t cur_block = first_f_block_idx;
+	uint8_t *save_buf = (uint8_t *)ptr;
+	int total_bytes_read = 0;
+	while(cur_block <= last_f_block_idx)
+	{
+		uint32_t start_block_offset = 0;
+		uint32_t last_block_offset = fs_block_size;
+
+		// If we're the first block, adjust start_block_idx appropriately
+		if(cur_block == first_f_block_idx)
+			start_block_offset = first_f_block_offset;
+		// If we're the last block, adjust last_block_idx appropriately
+		if(cur_block == last_f_block_idx)
+			last_block_offset = last_f_block_offset;
+
+		uint32_t block_segment_length = last_block_offset - start_block_offset;
+
+		// Get the filesystem block number
+		uint32_t cur_bdev_block = get_next_bdev_block_num(cur_block, stream, &opaque);
+
+		// If we can load an entire block, load it directly, else we have
+		//  to load to a buffer somewhere and copy appropriately
+		if((start_block_offset == 0) && (block_segment_length == fs_block_size))
+		{
+			int bytes_read = block_read(fs->parent, save_buf, fs_block_size, cur_bdev_block);
+			total_bytes_read += bytes_read;
+			stream->pos += bytes_read;
+			save_buf += bytes_read;
+			if((uint32_t)bytes_read != fs_block_size)
+				return total_bytes_read;
+		}
+		else
+		{
+			// We have to load to a temporary buffer
+			uint8_t *temp_buf = (uint8_t *)malloc(fs_block_size);
+			int bytes_read = block_read(fs->parent, temp_buf, fs_block_size, cur_bdev_block);
+			if(last_block_offset > (uint32_t)bytes_read)
+				last_block_offset = bytes_read;
+			if(last_block_offset < start_block_offset)
+				block_segment_length = 0;
+			else
+				block_segment_length = last_block_offset - start_block_offset;
+
+			// Copy from the temporary buffer to the save buffer
+			qmemcpy(save_buf, &temp_buf[start_block_offset], block_segment_length);
+
+			// Increment the pointers
+			total_bytes_read += block_segment_length;
+			stream->pos += block_segment_length;
+			save_buf += block_segment_length;
+
+			free(temp_buf);
+
+			if((uint32_t)bytes_read != fs_block_size)
+				return total_bytes_read;
+		}
+
+		cur_block++;
+	}
+
+	return total_bytes_read;
 }
