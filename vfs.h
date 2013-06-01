@@ -48,6 +48,7 @@ struct vfs_entry
 #define VFS_MODE_CREATE	8
 
 #define VFS_FLAGS_EOF	1
+#define VFS_FLAGS_ERROR	2
 
 struct vfs_file
 {
@@ -57,10 +58,15 @@ struct vfs_file
     void *opaque;
     long len;
 	int flags;
+	void (*fflush_cb)(FILE *f);
 };
 
 int fseek(FILE *stream, long offset, int whence);
 long ftell(FILE *stream);
+long fsize(FILE *stream);
+int feof(FILE *stream);
+int ferror(FILE *stream);
+int fflush(FILE *stream);
 void rewind(FILE *stream);
 
 int vfs_register(struct fs *fs);
@@ -70,6 +76,7 @@ int vfs_set_default(char *dev_name);
 char *vfs_get_default();
 
 size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream);
+size_t fwrite(void *ptr, size_t size, size_t nmemb, FILE *stream);
 FILE *fopen(const char *path, const char *mode);
 int fclose(FILE *fp);
 DIR *opendir(const char *name);

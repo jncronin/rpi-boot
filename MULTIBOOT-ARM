@@ -64,29 +64,59 @@ enhance early OS development, particularly concerned with debugging
 output and loading files from the file system.
 
 If R3 on boot contains a value other than '0' then it points to a table
-of function pointers:
+of function pointers as defined in multiboot.h, with members defined as per
+POSIX.
 
-struct multiboot_arm_functions
-{
-    // Console output functions
-    int (*printf)(const char *format, ...);
-    void (*clear)();
+Non-POSIX functions are:
 
-    // File/directory read functions
-    FILE *(*fopen)(const char *path, const char *mode);
-    size_t (*fread)(void *ptr, size_t size, size_t nmemb, FILE *stream);
-    int (*fclose)(FILE *fp);
-    int (*fseek)(FILE *stream, long offset, int whence);
-    DIR *(*opendir)(const char *name);
-    struct dirent *(*readdir)(DIR *dirp);
-    int (*closedir)(DIR *dirp);
+void clear():
+	Clear the screen and reset the cursor to the top left position
 
-    // Timer functions
-    int (*usleep)(useconds_t usec);
-};
+rpi_boot_output_state output_get_state():
+	Return the current state of the output subsystem (for later restoring
+	with output_restore_state())
 
-with members defined as per POSIX.  In particular the clear() function clears
-the screen and resets the cursor to the top left position.
+void output_restore_state(rpi_boot_output_state state):
+	Restore the output state previously stored with output_get_state()
+
+void output_[enable/disable]_[method]():
+	Enable or disable the use of a particular output method.  Supported
+	methods are:
+		uart:		output on the UART
+		fb:			framebuffer
+		log:		use the file specified by the 'console log'
+					configuration option or register_log_file()
+		custom:		use the function specified to
+					register_custom_output_function()
+
+int mb_arm_version():
+	Return the version of the multiboot arm functions structure in use by
+	the current bootloader.  Note that later structures will be backward
+	compatible with earlier ones.
+
+long fsize(FILE *stream):
+	Return the length of a stream.
+
+int ramdisk_init(uintptr_t address, size_t size, int fs_type, char *name):
+	Define a ramdisk, starting at 'address', of length 'size'.  The typical
+	usage is to load a ramdisk image to memory (using fopen/fread etc) then
+	register it with the bootloader with this function.  fs_type is the type
+	of file system to expect to find (standard partition type code as per
+	http://www.win.tue.nl/~aeb/partitions/partition_types-1.html
+	'name' is the name to give the device in the bootloader e.g. if named
+	'ramdisk', its entries can be accessed as (ramdisk)/dir/file.txt
+
+int register_custom_output_function(int (*putc_function)(int c)):
+	Register the putc() function to call for the 'custom' output method.
+
+int register_log_file(FILE *fp, int buffer):
+	Register the file to output the log to if the 'log' output method is
+	enabled.  If buffer is > 0 it is the number of bytes to buffer
+	before writing to the output stream.  A call to fclose() will flush
+	the buffer to the stream.
+
+FILE *get_log_file():
+	Return the current log file in use, for passing to fflush() for example.
 
 Path names use the '/' character as a directory delimiter.  Files on a FAT
 filesystem are referenced by their lowercase name (in particular, looking for

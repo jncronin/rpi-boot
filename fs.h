@@ -39,6 +39,10 @@ struct fs {
 	size_t (*fread)(struct fs *, void *ptr, size_t byte_size, FILE *stream);
 	size_t (*fwrite)(struct fs *, void *ptr, size_t byte_size, FILE *stream);
 	int (*fclose)(struct fs *, FILE *fp);
+	long (*fsize)(FILE *fp);
+    int (*fseek)(FILE *stream, long offset, int whence);
+	long (*ftell)(FILE *fp);
+	int (*fflush)(FILE *fp);
 
 	struct dirent *(*read_directory)(struct fs *, char **name);
 };

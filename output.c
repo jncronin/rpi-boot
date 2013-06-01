@@ -24,6 +24,7 @@
 #include "console.h"
 
 rpi_boot_output_state ostate;
+int (*custom_putc)(int c) = NULL;
 
 rpi_boot_output_state output_get_state()
 {
@@ -59,6 +60,28 @@ void output_enable_uart()
 #endif
 }
 
+void output_disable_custom()
+{
+	ostate &= ~RPIBOOT_OUTPUT_CUSTOM;
+}
+
+void output_enable_custom()
+{
+	ostate |= RPIBOOT_OUTPUT_CUSTOM;
+}
+
+void output_disable_log()
+{
+	ostate &= RPIBOOT_OUTPUT_LOG;
+}
+
+void output_enable_log()
+{
+#ifdef ENABLE_CONSOLE_LOGFILE
+	ostate |= RPIBOOT_OUTPUT_LOG;
+#endif
+}
+
 void output_init()
 {
     ostate = 0;
@@ -75,5 +98,17 @@ int split_putc(int c)
     if(ostate & RPIBOOT_OUTPUT_FB)
         ret = console_putc(c);
 #endif
+#ifdef ENABLE_CONSOLE_LOGFILE
+	if(ostate & RPIBOOT_OUTPUT_LOG)
+		ret = log_putc(c);
+#endif
+	if((ostate & RPIBOOT_OUTPUT_CUSTOM) && custom_putc)
+		custom_putc(c);
     return ret;
+}
+
+int register_custom_output_function(int (*putc_function)(int c))
+{
+	custom_putc = putc_function;
+	return 0;
 }

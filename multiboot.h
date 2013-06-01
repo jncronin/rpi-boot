@@ -59,6 +59,8 @@ struct dirent {
 	struct fs *fs;
 };
 
+#define MB_ARM_VERSION		2
+
 struct multiboot_arm_functions
 {
     // Console output functions
@@ -84,6 +86,29 @@ struct multiboot_arm_functions
     void (*output_disable_fb)();
     void (*output_enable_uart)();
     void (*output_disable_uart)();
+
+	// Get the version of the multiboot arm header
+	int (*mb_arm_version)();
+
+	// More file functions
+	int (*feof)(FILE *stream);
+	int (*ferror)(FILE *stream);
+	size_t (*fwrite)(void *ptr, size_t size, size_t nmemb, FILE *stream);
+	long (*fsize)(FILE *stream);
+	long (*ftell)(FILE *stream);
+	int (*fflush)(FILE *stream);
+
+	// Ramdisk functions
+	int (*ramdisk_init)(uintptr_t address, size_t size, int fs_type, char *name);
+
+	// Log functions
+	int (*register_custom_output_function)(int (*putc_function)(int c));
+	void (*output_enable_custom)();
+	void (*output_disable_custom)();
+	void (*output_enable_log)();
+	void (*output_disable_log)();
+	int (*register_log_file)(FILE *fp, int buffer);
+	FILE *(*get_log_file)();
 };
 
 #endif // __ARMEL__

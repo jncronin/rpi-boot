@@ -92,12 +92,40 @@ static struct multiboot_method methods[] =
 	}
 };
 
+static int mb_arm_version()
+{
+	return MB_ARM_VERSION;
+}
+
 /* Define a dummy clear() function if the framebuffer is not enabled, to prevent
  * buggy clients from calling a null pointer
  */
 #ifndef ENABLE_FRAMEBUFFER
 void clear()
 { }
+#endif
+
+int ramdisk_init(uintptr_t address, size_t size, int fs_type, char *name);
+#ifndef ENABLE_RAMDISK
+int ramdisk_init(uintptr_t address, size_t size, int fs_type, char *name)
+{
+	(void)address; (void)size; (void)fs_type; (void)name;
+	return -1;
+}
+#endif
+
+int register_log_file(FILE *fp, int buffer);
+FILE *get_log_file();
+#ifndef ENABLE_CONSOLE_LOGFILE
+int register_log_file(FILE *fp, int buffer)
+{
+	(void)fp; (void)buffer;
+	return -1;
+}
+FILE *get_log_file()
+{
+	return NULL;
+}
 #endif
 
 struct multiboot_arm_functions funcs =
@@ -108,6 +136,12 @@ struct multiboot_arm_functions funcs =
 	.fread = fread,
 	.fclose = fclose,
 	.fseek = fseek,
+	.ftell = ftell,
+	.fsize = fsize,
+	.ferror = ferror,
+	.fwrite = fwrite,
+	.feof = feof,
+	.fflush = fflush,
 	.opendir = opendir,
 	.readdir = readdir,
 	.closedir = closedir,
@@ -117,7 +151,16 @@ struct multiboot_arm_functions funcs =
 	.output_enable_fb = output_enable_fb,
 	.output_disable_fb = output_disable_fb,
 	.output_enable_uart = output_enable_uart,
-	.output_disable_uart = output_disable_uart
+	.output_disable_uart = output_disable_uart,
+	.output_enable_log = output_enable_log,
+	.output_disable_log = output_disable_log,
+	.output_enable_custom = output_enable_custom,
+	.output_disable_custom = output_disable_custom,
+	.register_custom_output_function = register_custom_output_function,
+	.register_log_file = register_log_file,
+	.get_log_file = get_log_file,
+	.ramdisk_init = ramdisk_init,
+	.mb_arm_version = mb_arm_version
 };
 
 static char *read_line(char **buf)

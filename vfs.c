@@ -24,6 +24,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "output.h"
 
 static struct vfs_entry *first = (void*)0;
 static struct vfs_entry *def = (void*)0;
@@ -275,21 +276,122 @@ size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream)
 	return bytes_to_read / size;
 }
 
-int fclose(FILE *fp)
+size_t fwrite(void *ptr, size_t size, size_t nmemb, FILE *stream)
 {
-	if(fp)
+	if(stream == NULL)
 	{
-		free(fp);
+		errno = EINVAL;
 		return 0;
 	}
+
+	size_t bytes_to_write = size * nmemb;
+	if((stream == stdout) || (stream == stderr))
+	{
+		uint8_t *c_buf = (uint8_t *)ptr;
+		for(size_t i = 0; i < bytes_to_write; i++)
+			split_putc((char)c_buf[i]);
+	}
 	else
+	{
+		if(bytes_to_write > (size_t)(stream->len - stream->pos))
+			bytes_to_write = (size_t)(stream->len - stream->pos);
+		size_t nmemb_to_write = bytes_to_write / size;
+		bytes_to_write = nmemb_to_write * size;
+	}
+	return bytes_to_write / size;
+}
+
+int fflush(FILE *fp)
+{
+	if(fp == NULL)
+	{
+		errno = EINVAL;
 		return -1;
+	}
+	if(fp->fflush_cb)
+		fp->fflush_cb(fp);
+	if(fp->fs->fflush)
+		fp->fs->fflush(fp);
+	return 0;
+}
+
+int fclose(FILE *fp)
+{
+	if(fp == NULL)
+	{
+		errno = EINVAL;
+		return -1;
+	}
+	fflush(fp);
+	if(fp->fs->fclose)
+		fp->fs->fclose(fp->fs, fp);
+
+	free(fp);
+	return 0;
+}
+
+int feof(FILE *stream)
+{
+	if(!stream)
+	{
+		errno = EINVAL;
+		return -1;
+	}
+	if(stream->flags & VFS_FLAGS_EOF)
+		return 1;
+	else
+		return 0;
+}
+
+int ferror(FILE *stream)
+{
+	if(!stream)
+	{
+		errno = EINVAL;
+		return -1;
+	}
+	if(stream->flags & VFS_FLAGS_ERROR)
+		return 1;
+	else
+		return 0;
+}
+
+long fsize(FILE *stream)
+{
+	if(!stream)
+	{
+		errno = EINVAL;
+		return -1;
+	}
+	if(stream->fs->fsize)
+		return stream->fs->fsize(stream);
+	else
+		return stream->len;
+}
+
+long ftell(FILE *stream)
+{
+	if(!stream)
+	{
+		errno = EINVAL;
+		return -1;
+	}
+	if(stream->fs->ftell)
+		return stream->fs->ftell(stream);
+	else
+		return stream->pos;
 }
 
 int fseek(FILE *stream, long offset, int whence)
 {
 	if(!stream)
+	{
+		errno = EINVAL;
 		return -1;
+	}
+
+	if(stream->fs->fseek)
+		return stream->fs->fseek(stream, offset, whence);
 	
 	switch(whence)
 	{
