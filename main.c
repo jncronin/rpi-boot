@@ -172,9 +172,7 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 
 	// List devices
 	printf("MAIN: device list: ");
-	char **devs = vfs_get_device_list();
-	while(*devs)
-		printf("%s ", *devs++);
+	vfs_list_devices();
 	printf("\n");
 
 	// Look for a boot configuration file, starting with the default device,

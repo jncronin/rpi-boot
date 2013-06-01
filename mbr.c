@@ -185,6 +185,7 @@ int read_mbr(struct block_device *parent, struct block_device ***partitions, int
                 return -1;
 			}
 			d->blocks /= block_size_adjust;
+			d->bd.num_blocks = d->blocks;
 
 			parts[cur_p++] = (struct block_device *)d;
 #ifdef MBR_DEBUG

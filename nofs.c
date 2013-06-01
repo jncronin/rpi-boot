@@ -25,7 +25,7 @@
  * It is implemented as a single file starting at byte 0 and potentially
  * spanning the entire partition.
  * It maintains an 'end-of-file' marker and ensures the last bytes of the file are
- * either ~~~~~~~~ (8 ~s) followed by EOF or just EOF regardless of fseeking
+ * either EOF followed by ~~~~~~~~ (8 ~s) or just EOF regardless of fseeking
  * backward/forwards etc
  * The first three bytes of the filesystem are the UTF-8 byte order mark
  * (0xef, 0xbb, 0xbf) which should be ignored by any program which reads the
@@ -43,8 +43,8 @@
 #define EOF 0xff
 
 // Define to be the EOF marker to use
-#define EOF_MARK		{ EOF }
-// #define EOF_MARK		{ '~', '~', '~', '~, '~', '~', '~', '~, EOF }
+//#define EOF_MARK		{ EOF }
+#define EOF_MARK		{ EOF, '~', '~', '~', '~', '~', '~', '~', '~' }
 
 // UTF BOM
 #define UTF_BOM_1		0xef
@@ -53,6 +53,10 @@
 
 static uint8_t eof_mark[] = EOF_MARK;
 static char nofs_name[] = "nofs";
+
+#ifdef NOFS_DEBUG
+static char nofs_debug_startup[] = "NOFS started up in debug mode\n";
+#endif
 
 struct nofs_fs
 {
@@ -86,6 +90,15 @@ int nofs_init(struct block_device *parent, struct fs **fs)
 	nofs->b.block_size = parent->block_size;
 
 	*fs = (struct fs *)nofs;
+
+	printf("NOFS: found a nofs partition on %s\n", parent->device_name);
+
+#ifdef NOFS_DEBUG
+	FILE *nfs_f = nofs_fopen(*fs, NULL, "a+");
+	if(nfs_f == NULL)
+		printf("NOFS: fopen failed %i\n", errno);
+	nofs_fwrite(*fs, nofs_debug_startup, strlen(nofs_debug_startup), nfs_f);
+#endif
 	return 0;
 }
 
@@ -129,12 +142,19 @@ FILE *nofs_fopen(struct fs *fs, struct dirent *path, const char *mode)
 	if((block_0[0] == UTF_BOM_1) && (block_0[1] == UTF_BOM_2) &&
 		(block_0[2] == UTF_BOM_3))
 	{
+#ifdef NOFS_DEBUG
+		printf("NOFS: found UTF-8 BOM at start of partition, mode = %i, num_blocks = %i\n",
+			m, fs->parent->num_blocks);
+#endif
 		free(block_0);
 		// If the mode argument includes an append, we have to search the
 		//  file looking for an EOF marker.  We can only do this if the
 		//  underlying block device has a valid length
-		if((m & VFS_MODE_APPEND) & fs->parent->num_blocks)
+		if((m & VFS_MODE_APPEND) && fs->parent->num_blocks)
 		{
+#ifdef NOFS_DEBUG
+			printf("NOFS: searching for an EOF marker: ");
+#endif
 			int found = 0;
 			size_t block_no = 0;
 			uint8_t *buf = (uint8_t *)malloc(fs->parent->block_size);
@@ -161,11 +181,21 @@ FILE *nofs_fopen(struct fs *fs, struct dirent *path, const char *mode)
 				}
 			}
 
+#ifdef NOFS_DEBUG
+			if(found)
+				printf("found at position %i\n", start_pos);
+			else
+				printf("not found\n");
+#endif
+
 			free(buf);
 		}
 	}
 	else
 	{
+#ifdef NOFS_DEBUG
+		printf("NOFS: no BOM found: writing one\n");
+#endif
 		// Write a UTF BOM followed by EOF to signify a new file
 		block_0[0] = UTF_BOM_1;
 		block_0[1] = UTF_BOM_2;
@@ -196,6 +226,10 @@ FILE *nofs_fopen(struct fs *fs, struct dirent *path, const char *mode)
 	f->pos = start_pos;
 	f->mode = m;
 	f->len = start_pos;
+
+#ifdef NOFS_DEBUG
+	printf("NOFS: current file pointer %i\n", start_pos);
+#endif
 
 	return (FILE *)f;
 }
