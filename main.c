@@ -33,6 +33,7 @@
 #include "usb.h"
 #include "dwc_usb.h"
 #include "output.h"
+#include "log.h"
 
 #define UNUSED(x) (void)(x)
 
@@ -160,6 +161,12 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 
 	// Switch to the framebuffer for output
 	output_enable_fb();
+
+	// Allocate a log in memory
+#ifdef ENABLE_CONSOLE_LOGFILE
+	register_log_file(NULL, 0x1000);
+	output_enable_log();
+#endif
 
 	printf("Welcome to Rpi bootloader\n");
 	printf("Compiled on %s at %s\n", __DATE__, __TIME__);

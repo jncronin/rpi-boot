@@ -43,6 +43,7 @@
 #include <stdlib.h>
 #include "timer.h"
 #include "vfs.h"
+#include "output.h"
 
 FILE *log_fp = NULL;
 uint8_t *log_buf = NULL;
@@ -76,7 +77,15 @@ int log_putc(int c)
 	}
 	else if(log_fp)
 	{
+		// Disable output to the log for the write
+		rpi_boot_output_state state = output_get_state();
+		output_disable_log();
+
+		// Write one character
 		fwrite(&c, 1, 1, log_fp);
+
+		// Restore saved output state
+		output_restore_state(state);
 		return 0;
 	}
 	return EOF;
@@ -86,7 +95,17 @@ static int log_fflush(FILE *fp)
 {
 	// Flush the buffer
 	if(log_fp && log_buf)
+	{
+		// Disable output to the log for the write
+		rpi_boot_output_state state = output_get_state();
+		output_disable_log();
+
+		// Write the buffer
 		fwrite(log_buf, 1, buf_ptr, fp);
+
+		// Restore the state
+		output_restore_state(state);
+	}
 	return 0;
 }
 
@@ -101,10 +120,23 @@ int register_log_file(FILE *fp, size_t buffer_size)
 	{
 		if(log_buf)
 			free(log_buf);
-		log_buf = NULL;
+
+		// We can still use a buffer without a file, for flushing
+		//  later to the file
+		if(buffer_size)
+			log_buf = (uint8_t *)malloc(buffer_size);
+		else
+			log_buf = NULL;
+		buf_size = buffer_size;
+		buf_ptr = 0;
 		log_fp = NULL;
 		return 0;
 	}
+
+	// If no current log, and there is a buffer, then flush
+	//  what's in it to the new file
+	if(!log_fp && log_buf)
+		fflush(fp);
 
 	// If we have a buffer free it
 	if((buf_size != buffer_size) && log_buf)

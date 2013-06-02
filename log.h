@@ -22,6 +22,12 @@
 #ifndef LOG_H
 #define LOG_H
 
+#include "vfs.h"
+
+#define LOG_DEFAULT_BUFFER_SIZE			512
+
 int log_putc(int c);
+int register_log_file(FILE *fp, size_t buffer_size);
+FILE *get_log_file();
 
 #endif

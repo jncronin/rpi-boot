@@ -34,6 +34,7 @@
 #include "fb.h"
 #include "timer.h"
 #include "output.h"
+#include "log.h"
 
 #ifdef DEBUG2
 #define MULTIBOOT_DEBUG
@@ -45,6 +46,7 @@ static int method_module(char *args);
 static int method_kernel(char *args);
 static int method_entry_addr(char *args);
 static int method_binary_load_addr(char *args);
+static int method_console_log(char *args);
 
 static void atag_cb(struct atag *);
 static void atag_cb2(struct atag *);
@@ -89,7 +91,11 @@ static struct multiboot_method methods[] =
 	{
 		.name = "binary_load_addr",
 		.method = method_binary_load_addr
-	}
+	},
+	{
+		.name = "console_log",
+		.method = method_console_log
+	},
 };
 
 static int mb_arm_version()
@@ -114,8 +120,6 @@ int ramdisk_init(uintptr_t address, size_t size, int fs_type, char *name)
 }
 #endif
 
-int register_log_file(FILE *fp, size_t buffer_size);
-FILE *get_log_file();
 #ifndef ENABLE_CONSOLE_LOGFILE
 int register_log_file(FILE *fp, size_t buffer_size)
 {
@@ -859,6 +863,68 @@ int method_entry_addr(char *args)
 		printf("ENTRY_ADDR: %s is not a valid address\n", args);
 		return -1;
 	}
+}
+
+int method_console_log(char *args)
+{
+	// Arguments: <log file name>[+] [buffer_size]
+	// 	log file name, buffer_size
+	//
+	//	buffer_size is a byte count, it determines how many
+	//  bytes are buffered before being flushed to disk.
+	//  Flushing can be performed manually with fflush()ing
+	//  the file pointer returned by get_log_file()
+	//
+	//  0 for no buffer
+	//
+	//  If log file name is appended by a '+' then the file is
+	//  opened in append mode.
+
+	char *logName, *buffer_size;
+	long bufferSize;
+	int is_append = 0;
+
+	char *endptr;
+	FILE *target;
+
+	split_string(args, &logName, &buffer_size);
+
+	// Determine if we are appending
+	if(logName[strlen(logName) - 1] == '+')
+	{
+		is_append = 1;
+		logName[strlen(logName) - 1] = '\0';
+	}
+
+	if(buffer_size == empty_string)
+		bufferSize = LOG_DEFAULT_BUFFER_SIZE;
+	else
+	{
+		bufferSize = strtol(buffer_size, &endptr, 0);
+		if (endptr == buffer_size || '\0' != *endptr)
+		{
+			printf("CONSOLE_LOG: buffer end is missing, or junk on line; "
+				   " found '%s'.", args);
+			return -1;
+		}
+	}
+
+#ifdef MULTIBOOT_DEBUG
+	printf("CONSOLE_LOG: got arguments file='%s', "
+	       "buffer size = %ld(0x%lx)\n",
+	       logName, bufferSize, bufferSize);
+#endif
+
+	if (NULL == (target = fopen(logName, (is_append) ? "a+" : "w+"))) 
+	{
+		printf("CONSOLE_LOG: cannot open log '%s': errno=%d\n",
+		       logName, errno);
+		return -1;
+	}
+
+	register_log_file(target, bufferSize);
+
+	return 0;
 }
 
 int method_binary_load_addr(char *args)
