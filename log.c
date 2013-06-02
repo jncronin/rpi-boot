@@ -144,7 +144,10 @@ int register_log_file(FILE *fp, size_t buffer_size)
 	// If no current log, and there is a buffer, then flush
 	//  what's in it to the new file
 	if(!log_fp && log_buf)
+	{
+		log_fp = fp;
 		fflush(fp);
+	}
 
 	// If we have a buffer free it
 	if((buf_size != buffer_size) && log_buf)

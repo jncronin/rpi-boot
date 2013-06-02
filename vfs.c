@@ -293,10 +293,14 @@ size_t fwrite(void *ptr, size_t size, size_t nmemb, FILE *stream)
 	}
 	else
 	{
-		if(bytes_to_write > (size_t)(stream->len - stream->pos))
-			bytes_to_write = (size_t)(stream->len - stream->pos);
 		size_t nmemb_to_write = bytes_to_write / size;
 		bytes_to_write = nmemb_to_write * size;
+		if(stream->fs->fwrite == NULL)
+		{
+			errno = EROFS;
+			return 0;
+		}
+		bytes_to_write = stream->fs->fwrite(stream->fs, ptr, bytes_to_write, stream);
 	}
 	return bytes_to_write / size;
 }

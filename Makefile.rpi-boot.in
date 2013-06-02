@@ -23,7 +23,7 @@ CFLAGS += -DBUILDING_RPIBOOT
 
 ASFLAGS += -Wa,-mcpu=arm1176jzf-s
 
-QEMUFLAGS = -cpu arm1176 -m 256 -M raspi -kernel kernel-qemu.img -usb -nographic -serial unix:serial.pipe
+QEMUFLAGS = -cpu arm1176 -m 256 -M raspi -kernel kernel-qemu.img -usb -nographic 
 SDFLAGS = -sd sd.img
 
 #ifdef ENABLE_FRAMEBUFFER
