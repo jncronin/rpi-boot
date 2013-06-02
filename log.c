@@ -113,7 +113,12 @@ int register_log_file(FILE *fp, size_t buffer_size)
 {
 	// If we have a current log, flush it
 	if(log_fp)
+	{
 		fflush(log_fp);
+
+		// deregister fflush callback
+		log_fp->fflush_cb = NULL;
+	}
 
 	// If passed NULL, then set no log file
 	if(fp == NULL)
@@ -132,6 +137,9 @@ int register_log_file(FILE *fp, size_t buffer_size)
 		log_fp = NULL;
 		return 0;
 	}
+	
+	// Store the fflush callback
+	fp->fflush_cb = log_fflush;
 
 	// If no current log, and there is a buffer, then flush
 	//  what's in it to the new file
@@ -149,7 +157,7 @@ int register_log_file(FILE *fp, size_t buffer_size)
 
 	// Store the log file pointer
 	log_fp = fp;
-	fp->fflush_cb = log_fflush;
+
 
 	return 0;
 }
