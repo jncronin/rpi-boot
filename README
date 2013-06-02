@@ -60,6 +60,16 @@ binary_load_addr <address>
 entry_addr <address>
 	- Set the entry point that is jumped to by a subsequent 'boot' command
 
+console_log <file>[+] [buffer_size]
+	- Copy the console log to a file.  If '+' is specified after the file name
+		then append to the file instead of overwriting it.  If 'buffer_size'
+		is specified then it is the number of bytes to buffer before writing
+		to the file.  This prevents the log quickly using up all the write
+		cycles on solid state media, but runs the risk of some messages being
+		lost on a kernel crash.  Call fflush(get_log_file()) from the guest
+		OS to manually flush the buffer.  Support for console_log requires
+		that ENABLE_CONSOLE_LOGFILE be enabled in config.h
+
 
 System state on kernel start
 ----------------------------
