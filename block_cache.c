@@ -50,9 +50,9 @@ struct cache_dev
 	uint32_t *cached_blocks;
 };
 
-static int cache_read(struct block_device *, uint8_t *buf, size_t buf_size, uint32_t starting_block);
-static int cache_write(struct block_device *, uint8_t *buf, size_t buf_size, uint32_t starting_block);
-static int cache_idx(struct cache_dev *dev, uint32_t block_no);
+int cache_read(struct block_device *, uint8_t *buf, size_t buf_size, uint32_t starting_block);
+int cache_write(struct block_device *, uint8_t *buf, size_t buf_size, uint32_t starting_block);
+inline static int cache_idx(struct cache_dev *dev, uint32_t block_no);
 
 int cache_init(struct block_device *parent, struct block_device **dev, uintptr_t cache_start, size_t cache_length)
 {
@@ -128,12 +128,12 @@ int cache_init(struct block_device *parent, struct block_device **dev, uintptr_t
 	return 0;
 }
 
-static int cache_idx(struct cache_dev *dev, uint32_t block_no)
+inline static int cache_idx(struct cache_dev *dev, uint32_t block_no)
 {
 	return (int)(block_no & dev->cache_mask);
 }
 
-static int cache_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t starting_block)
+int cache_read(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t starting_block)
 {
 	struct cache_dev *cd = (struct cache_dev *)dev;
 
@@ -199,7 +199,7 @@ static int cache_read(struct block_device *dev, uint8_t *buf, size_t buf_size, u
 	return buf_size;
 }
 
-static int cache_write(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t starting_block)
+int cache_write(struct block_device *dev, uint8_t *buf, size_t buf_size, uint32_t starting_block)
 {
 	struct cache_dev *cd = (struct cache_dev *)dev;
 
