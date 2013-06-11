@@ -37,7 +37,15 @@ void *qmemcpy(void *dest, void *src, size_t n);
 
 uintptr_t alloc_buf(size_t size);
 
-uint32_t byte_swap(uint32_t in);
+static inline uint32_t byte_swap(uint32_t v) {
+  uint32_t result;
+#ifdef __arm__
+	__asm__ __volatile__ ("rev %0, %1" : "=r" (result) : "r" (v));
+#else
+	result = (v >> 24) | (v << 24) | ((v&0xff00) << 8) | ((v&0xff0000) >> 8);
+#endif
+	return result;
+}
 
 #endif
 
