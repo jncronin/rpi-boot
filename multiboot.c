@@ -25,6 +25,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <ctype.h>
 #include "atag.h"
 #include "elf.h"
 #include "memchunk.h"
@@ -193,6 +194,34 @@ static char *read_line(char **buf)
 	}
 }
 
+/* Remove leading and trailing whitespace and trailing comments from a configuration line */
+static char *strip_comments(char *buf)
+{
+	// Remove leading whitespace
+	while(isspace(*buf))
+		buf++;
+
+	// Remove comments
+	char *s = buf;
+	while(*s)
+	{
+		if(*s == '#')
+			*s = '\0';
+		else
+			s++;
+	}
+
+	// Remove trailing whitespace
+	s--;
+	while((s > buf) && isspace(*s))
+	{
+		*s = '\0';
+		s--;
+	}
+
+	return buf;
+}
+
 char empty_string[] = "";
 
 static void split_string(char *str, char **method, char **args)
@@ -240,6 +269,7 @@ int cfg_parse(char *buf)
 	char *b = buf;
 	while((line = read_line(&b)))
 	{
+		line = strip_comments(line);
 #ifdef MULTIBOOT_DEBUG
 		printf("read_line: %s\n", line);
 #endif
@@ -258,6 +288,7 @@ int cfg_parse(char *buf)
 		for(int i = 0; i < method_count; i++)
 		{
 			char *lwr = strlwr(method);
+
 			if(!strcmp(lwr, methods[i].name))
 			{
 				found = 1;
