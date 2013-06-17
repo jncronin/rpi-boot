@@ -29,40 +29,43 @@
 
 int usleep(useconds_t usec)
 {
-	struct timer_wait *tw = register_timer(usec);
+	struct timer_wait tw = register_timer(usec);
 	while(!compare_timer(tw));
-    free(tw);
 	return 0;	
 }
 
-struct timer_wait *register_timer(useconds_t usec)
+struct timer_wait register_timer(useconds_t usec)
 {
+	struct timer_wait tw;
+	tw.rollover = 0;
+	tw.trigger_value = 0;
+
 	if(usec < 0)
 	{
 		errno = EINVAL;
-		return (void*)0;
+		return tw;
 	}
 	uint32_t cur_timer = mmio_read(TIMER_CLO);
 	uint32_t trig = cur_timer + (uint32_t)usec;
-	struct timer_wait *tw = (struct timer_wait *)malloc(sizeof(struct timer_wait));
-	tw->trigger_value = trig;
+
+	tw.trigger_value = trig;
 	if(trig > cur_timer)
-		tw->rollover = 0;
+		tw.rollover = 0;
 	else
-		tw->rollover = 1;
+		tw.rollover = 1;
 	return tw;
 }
 
-int compare_timer(struct timer_wait *tw)
+int compare_timer(struct timer_wait tw)
 {
 	uint32_t cur_timer = mmio_read(TIMER_CLO);
 
-	if(cur_timer < tw->trigger_value)
+	if(cur_timer < tw.trigger_value)
 	{
-		if(tw->rollover)
-			tw->rollover = 0;
+		if(tw.rollover)
+			tw.rollover = 0;
 	}
-	else if(!tw->rollover)
+	else if(!tw.rollover)
 		return 1;
 
 	return 0;

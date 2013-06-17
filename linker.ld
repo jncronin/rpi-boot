@@ -37,6 +37,14 @@ SECTIONS
 	}
 	. = ALIGN(4096);
 	_bss_end = .;
+
+	__exidx_start = .;
+	.ARM.exidx :
+	{
+		*(.ARM.exidx*)
+	}
+	__exidx_end = .;
+
 	_end = .;
 }
 

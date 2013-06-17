@@ -51,8 +51,8 @@ void *memset(void *s, int c, size_t n)
 
 void abort(void)
 {
-	fputs("abort() called", stdout);
-	fputs("abort() called", stderr);
+	fputs("abort() called\n", stdout);
+	fputs("abort() called\n", stderr);
 
 	while(1);
 }

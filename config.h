@@ -60,3 +60,6 @@
 
 /* Enable write-back cache support (currently not implemented) */
 #undef ENABLE_BLOCK_CACHE_WB
+
+/* Presence of <unwind.h> header file.  Modern GCC should have this. */
+#define HAVE_UNWIND_H

@@ -19,9 +19,34 @@
  * THE SOFTWARE.
  */
 
+/* Use of libgcc unwinder added by John Cronin 17/6/13 */
+
 #include "assert.h"
+
+#ifdef HAVE_UNWIND_H
+#include <unwind.h>
+#endif
+
 #include <stdio.h>
 
+#ifdef HAVE_UNWIND_H
+static _Unwind_Reason_Code unwind_cb(struct _Unwind_Context *ctx, void *trace_argument)
+{
+	int *depth = (int *)trace_argument;
+	printf("%i:\tFunction: %08x, IP: %08x\n", *depth, _Unwind_GetRegionStart(ctx),
+		_Unwind_GetIP(ctx));
+	(*depth)++;
+
+	return _URC_NO_REASON;
+}
+
+void assertStackDump(void)
+{
+	printf("\nStack dump:\n");
+	int depth = 0;
+	_Unwind_Backtrace(unwind_cb, &depth);
+}
+#else
 void assertStackDump(void) {
 	uint32_t start = 0x12345678;
 	int rowcount = 20;
@@ -36,4 +61,4 @@ void assertStackDump(void) {
 		rowpos += 8;
 	}
 }
-
+#endif

@@ -34,18 +34,17 @@ struct timer_wait
 };
 
 int usleep(useconds_t usec);
-struct timer_wait *register_timer(useconds_t usec);
-int compare_timer(struct timer_wait *tw);
+struct timer_wait register_timer(useconds_t usec);
+int compare_timer(struct timer_wait tw);
 
 #define TIMEOUT_WAIT(stop_if_true, usec) 		\
 do {							\
-	struct timer_wait *tw = register_timer(usec);	\
+	struct timer_wait tw = register_timer(usec);	\
 	do						\
 	{						\
 		if(stop_if_true)			\
 			break;				\
 	} while(!compare_timer(tw));			\
-	free(tw);					\
 } while(0);
 
 #endif

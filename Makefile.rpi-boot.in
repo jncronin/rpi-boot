@@ -74,6 +74,10 @@ CACHE_OBJS = block_cache.o
 LOGFILE_OBJS = log.o
 #endif
 
+#ifdef HAVE_UNWIND_H
+CFLAGS += -funwind-tables
+#endif
+
 /* Thanks to James Cone (https://github.com/JamesC1) for the idea here */
 #ifdef ENABLE_ALTERNATIVE_FONT
 FONT_OBJS = $(addsuffix .o,ALTERNATIVE_FONT)

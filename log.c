@@ -49,14 +49,14 @@ FILE *log_fp = NULL;
 uint8_t *log_buf = NULL;
 size_t buf_size;
 size_t buf_ptr;
-struct timer_wait *last_update = NULL;
+struct timer_wait last_update;
 
 // Time between flushes (requires that log_putc is actually called at some point)
 #define LOG_TIMEOUT			5000000
 
 int log_putc(int c)
 {
-	if(last_update == NULL)
+	if(last_update.trigger_value == 0)
 		last_update = register_timer(LOG_TIMEOUT);
 
 	if(log_buf && buf_size)
@@ -64,11 +64,9 @@ int log_putc(int c)
 		log_buf[buf_ptr++] = c;
 		if(buf_ptr >= buf_size)
 		{
-			if((log_fp && log_fp->fflush_cb) || (last_update && compare_timer(last_update)))
+			if((log_fp && log_fp->fflush_cb) || (last_update.rollover && compare_timer(last_update)))
 			{
 				log_fp->fflush_cb(log_fp);
-				if(last_update)
-					free(last_update);
 				last_update = register_timer(LOG_TIMEOUT);
 			}
 			buf_ptr = 0;

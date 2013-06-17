@@ -216,6 +216,7 @@ int fat_init(struct block_device *parent, struct fs **fs)
 		total_sectors = bs->total_sectors_32;
 
 	struct fat_fs *ret = (struct fat_fs *)malloc(sizeof(struct fat_fs));
+	memset(ret, 0, sizeof(struct fat_fs));
 	ret->b.fopen = fat_fopen;
 	ret->b.fread = fat_fread;
 	ret->b.fclose = fat_fclose;

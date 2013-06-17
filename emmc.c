@@ -34,6 +34,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <assert.h>
 #include "mmio.h"
 #include "block.h"
 #include "timer.h"
@@ -46,7 +47,7 @@
 // Configuration options
 
 // Enable 1.8V support
-//#define SD_1_8V_SUPPORT
+#define SD_1_8V_SUPPORT
 
 // Enable 4-bit support
 #define SD_4BIT_DATA
@@ -447,10 +448,20 @@ static uint32_t sd_acommands[] = {
 #define SD_RESET_DAT            (1 << 26)
 #define SD_RESET_ALL            (1 << 24)
 
+#define SD_GET_CLOCK_DIVIDER_FAIL	0xffffffff
+
 // Get the current base clock rate in Hz
 #if SDHCI_IMPLEMENTATION == SDHCI_IMPLEMENTATION_BCM_2708
 #include "mbox.h"
 #endif
+
+static void sd_power_off()
+{
+	/* Power off the SD card */
+	uint32_t control0 = mmio_read(EMMC_BASE + EMMC_CONTROL0);
+	control0 &= ~(1 << 8);	// Set SD Bus Power bit off in Power Control Register
+	mmio_write(EMMC_BASE + EMMC_CONTROL0, control0);
+}
 
 static uint32_t sd_get_base_clock_hz()
 {
@@ -507,6 +518,116 @@ static uint32_t sd_get_base_clock_hz()
 #endif
     return base_clock;
 }
+
+#if SDHCI_IMPLEMENTATION == SDHCI_IMPLEMENTATION_BCM_2708
+static int bcm_2708_power_off()
+{
+	uint32_t mb_addr = 0x40007000;		// 0x7000 in L2 cache coherent mode
+	volatile uint32_t *mailbuffer = (uint32_t *)mb_addr;
+
+	/* Power off the SD card */
+	// set up the buffer
+	mailbuffer[0] = 8 * 4;		// size of this message
+	mailbuffer[1] = 0;			// this is a request
+
+	// next comes the first tag
+	mailbuffer[2] = 0x00028001;	// set power state tag
+	mailbuffer[3] = 0x8;		// value buffer size
+	mailbuffer[4] = 0x8;		// is a request, value length = 8
+	mailbuffer[5] = 0x0;		// device id and device id also returned here
+	mailbuffer[6] = 0x2;		// set power off, wait for stable and returns state
+
+	// closing tag
+	mailbuffer[7] = 0;
+
+	// send the message
+	mbox_write(MBOX_PROP, mb_addr);
+
+	// read the response
+	mbox_read(MBOX_PROP);
+
+	if(mailbuffer[1] != MBOX_SUCCESS)
+	{
+	    printf("EMMC: bcm_2708_power_off(): property mailbox did not return a valid response.\n");
+	    return -1;
+	}
+
+	if(mailbuffer[5] != 0x0)
+	{
+	    printf("EMMC: property mailbox did not return a valid device id.\n");
+	    return -1;
+	}
+
+	if((mailbuffer[6] & 0x3) != 0)
+	{
+#ifdef EMMC_DEBUG
+		printf("EMMC: bcm_2708_power_off(): device did not power off successfully (%08x).\n", mailbuffer[6]);
+#endif
+		return 1;
+	}
+
+	return 0;
+}
+
+static int bcm_2708_power_on()
+{
+	uint32_t mb_addr = 0x40007000;		// 0x7000 in L2 cache coherent mode
+	volatile uint32_t *mailbuffer = (uint32_t *)mb_addr;
+
+	/* Power on the SD card */
+	// set up the buffer
+	mailbuffer[0] = 8 * 4;		// size of this message
+	mailbuffer[1] = 0;			// this is a request
+
+	// next comes the first tag
+	mailbuffer[2] = 0x00028001;	// set power state tag
+	mailbuffer[3] = 0x8;		// value buffer size
+	mailbuffer[4] = 0x8;		// is a request, value length = 8
+	mailbuffer[5] = 0x0;		// device id and device id also returned here
+	mailbuffer[6] = 0x3;		// set power off, wait for stable and returns state
+
+	// closing tag
+	mailbuffer[7] = 0;
+
+	// send the message
+	mbox_write(MBOX_PROP, mb_addr);
+
+	// read the response
+	mbox_read(MBOX_PROP);
+
+	if(mailbuffer[1] != MBOX_SUCCESS)
+	{
+	    printf("EMMC: bcm_2708_power_on(): property mailbox did not return a valid response.\n");
+	    return -1;
+	}
+
+	if(mailbuffer[5] != 0x0)
+	{
+	    printf("EMMC: property mailbox did not return a valid device id.\n");
+	    return -1;
+	}
+
+	if((mailbuffer[6] & 0x3) != 1)
+	{
+#ifdef EMMC_DEBUG
+		printf("EMMC: bcm_2708_power_on(): device did not power on successfully (%08x).\n", mailbuffer[6]);
+#endif
+		return 1;
+	}
+
+	return 0;
+}
+
+static int bcm_2708_power_cycle()
+{
+	if(bcm_2708_power_off() < 0)
+		return -1;
+
+	usleep(5000);
+
+	return bcm_2708_power_on();
+}
+#endif
 
 // Set the clock dividers to generate a target value
 static uint32_t sd_get_clock_divider(uint32_t base_clock, uint32_t target_rate)
@@ -581,7 +702,7 @@ static uint32_t sd_get_clock_divider(uint32_t base_clock, uint32_t target_rate)
     else
     {
         printf("EMMC: unsupported host version\n");
-        return 0;
+        return SD_GET_CLOCK_DIVIDER_FAIL;
     }
 
 }
@@ -591,7 +712,7 @@ static int sd_switch_clock_rate(uint32_t base_clock, uint32_t target_rate)
 {
     // Decide on an appropriate divider
     uint32_t divider = sd_get_clock_divider(base_clock, target_rate);
-    if(divider == 0)
+    if(divider == SD_GET_CLOCK_DIVIDER_FAIL)
     {
         printf("EMMC: couldn't get a valid divider for target rate %i Hz\n",
                target_rate);
@@ -609,6 +730,7 @@ static int sd_switch_clock_rate(uint32_t base_clock, uint32_t target_rate)
     usleep(2000);
 
     // Write the new divider
+	control1 &= ~0xffe0;		// Clear old setting + clock generator select
     control1 |= divider;
     mmio_write(EMMC_BASE + EMMC_CONTROL1, control1);
     usleep(2000);
@@ -1159,6 +1281,18 @@ int sd_card_init(struct block_device **dev)
         return -1;
     }
 
+#if SDHCI_IMPLEMENTATION == SDHCI_IMPLEMENTATION_BCM_2708
+	// Power cycle the card to ensure its in its startup state
+	if(bcm_2708_power_cycle() != 0)
+	{
+		printf("EMMC: BCM2708 controller did not power cycle successfully\n");
+		return -1;
+	}
+#ifdef EMMC_DEBUG
+	printf("EMMC: BCM2708 controller power-cycled\n");
+#endif
+#endif
+
 	// Read the controller version
 	uint32_t ver = mmio_read(EMMC_BASE + EMMC_SLOTISR_VER);
 	uint32_t vendor = ver >> 24;
@@ -1179,6 +1313,9 @@ int sd_card_init(struct block_device **dev)
 #endif
 	uint32_t control1 = mmio_read(EMMC_BASE + EMMC_CONTROL1);
 	control1 |= (1 << 24);
+	// Disable clock
+	control1 &= ~(1 << 2);
+	control1 &= ~(1 << 0);
 	mmio_write(EMMC_BASE + EMMC_CONTROL1, control1);
 	TIMEOUT_WAIT((mmio_read(EMMC_BASE + EMMC_CONTROL1) & (0x7 << 24)) == 0, 1000000);
 	if((mmio_read(EMMC_BASE + EMMC_CONTROL1) & (0x7 << 24)) != 0)
@@ -1234,7 +1371,13 @@ int sd_card_init(struct block_device **dev)
 	control1 |= 1;			// enable clock
 
 	// Set to identification frequency (400 kHz)
-	control1 |= sd_get_clock_divider(base_clock, SD_CLOCK_ID);
+	uint32_t f_id = sd_get_clock_divider(base_clock, SD_CLOCK_ID);
+	if(f_id == SD_GET_CLOCK_DIVIDER_FAIL)
+	{
+		printf("EMMC: unable to get a valid clock divider for ID frequency\n");
+		return -1;
+	}
+	control1 |= f_id;
 
 	control1 |= (7 << 16);		// data timeout = TMCLK * 2^10
 	mmio_write(EMMC_BASE + EMMC_CONTROL1, control1);
@@ -1320,7 +1463,7 @@ int sd_card_init(struct block_device **dev)
     }
     else if(FAIL(ret))
     {
-        printf("SD: failure sending CMD8\n");
+        printf("SD: failure sending CMD8 (%08x)\n", ret->last_interrupt);
         return -1;
     }
     else
@@ -1433,6 +1576,13 @@ int sd_card_init(struct block_device **dev)
 			ret->card_ocr, ret->card_supports_18v, ret->card_supports_sdhc);
 #endif
 
+    // At this point, we know the card is definitely an SD card, so will definitely
+	//  support SDR12 mode which runs at 25 MHz
+    sd_switch_clock_rate(base_clock, SD_CLOCK_NORMAL);
+
+	// A small wait before the voltage switch
+	usleep(5000);
+
 	// Switch to 1.8V mode if possible
 	if(ret->card_supports_18v)
 	{
@@ -1449,6 +1599,7 @@ int sd_card_init(struct block_device **dev)
             printf("SD: error issuing VOLTAGE_SWITCH\n");
 #endif
 	        ret->failed_voltage_switch = 1;
+			sd_power_off();
 	        return sd_card_init((struct block_device **)&ret);
 	    }
 
@@ -1466,6 +1617,7 @@ int sd_card_init(struct block_device **dev)
             printf("SD: DAT[3:0] did not settle to 0\n");
 #endif
 	        ret->failed_voltage_switch = 1;
+			sd_power_off();
 	        return sd_card_init((struct block_device **)&ret);
 	    }
 
@@ -1485,6 +1637,7 @@ int sd_card_init(struct block_device **dev)
             printf("SD: controller did not keep 1.8V signal enable high\n");
 #endif
 	        ret->failed_voltage_switch = 1;
+			sd_power_off();
 	        return sd_card_init((struct block_device **)&ret);
 	    }
 
@@ -1494,7 +1647,7 @@ int sd_card_init(struct block_device **dev)
 	    mmio_write(EMMC_BASE + EMMC_CONTROL1, control1);
 
 	    // Wait 1 ms
-	    usleep(1000);
+	    usleep(10000);
 
 	    // Check DAT[3:0]
 	    status_reg = mmio_read(EMMC_BASE + EMMC_STATUS);
@@ -1505,6 +1658,7 @@ int sd_card_init(struct block_device **dev)
             printf("SD: DAT[3:0] did not settle to 1111b (%01x)\n", dat30);
 #endif
 	        ret->failed_voltage_switch = 1;
+			sd_power_off();
 	        return sd_card_init((struct block_device **)&ret);
 	    }
 
@@ -1592,10 +1746,6 @@ int sd_card_init(struct block_device **dev)
 #ifdef EMMC_DEBUG
 	printf("SD: RCA: %04x\n", ret->card_rca);
 #endif
-
-
-    // Switch to 25 MHz speed
-    sd_switch_clock_rate(base_clock, SD_CLOCK_NORMAL);
 
 	// Now select the card (toggles it to transfer state)
 	sd_issue_command(ret, SELECT_CARD, ret->card_rca << 16, 500000);
@@ -1836,6 +1986,7 @@ static int sd_suitable_for_dma(void *buf)
 
 static int sd_do_data_command(struct emmc_block_dev *edev, int is_write, uint8_t *buf, size_t buf_size, uint32_t block_no)
 {
+	assert(((uintptr_t)buf & 0x3) == 0);
 	// PLSS table 4.20 - SDSC cards use byte addresses rather than block addresses
 	if(!edev->card_supports_sdhc)
 		block_no *= 512;
