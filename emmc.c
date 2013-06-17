@@ -927,9 +927,15 @@ static void sd_issue_command_int(struct emmc_block_dev *dev, uint32_t cmd_reg, u
             while(cur_byte_no < dev->block_size)
             {
                 if(is_write)
-                    mmio_write(EMMC_BASE + EMMC_DATA, *cur_buf_addr);
+				{
+					uint32_t data = read_word((uint8_t *)cur_buf_addr, 0);
+                    mmio_write(EMMC_BASE + EMMC_DATA, data);
+				}
                 else
-                    *cur_buf_addr = mmio_read(EMMC_BASE + EMMC_DATA);
+				{
+					uint32_t data = mmio_read(EMMC_BASE + EMMC_DATA);
+					write_word(data, (uint8_t *)cur_buf_addr, 0);
+				}
                 cur_byte_no += 4;
                 cur_buf_addr++;
             }
@@ -1986,7 +1992,6 @@ static int sd_suitable_for_dma(void *buf)
 
 static int sd_do_data_command(struct emmc_block_dev *edev, int is_write, uint8_t *buf, size_t buf_size, uint32_t block_no)
 {
-	assert(((uintptr_t)buf & 0x3) == 0);
 	// PLSS table 4.20 - SDSC cards use byte addresses rather than block addresses
 	if(!edev->card_supports_sdhc)
 		block_no *= 512;

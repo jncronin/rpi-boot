@@ -5,6 +5,13 @@
  * Don't use C++ style comments (//) in this file!
  */
 
+/* Enable a debug build, note that many files require extra defines to enable
+	full debug output.  e.g. to compile with SD debug support build with
+	CFLAGS=-DEMMC_DEBUG make 
+	
+	Also affects compiler optimization flags */
+#undef DEBUG
+
 /* Enable the framebuffer as an output device */
 #define ENABLE_FRAMEBUFFER
 

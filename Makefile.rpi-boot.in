@@ -15,11 +15,15 @@ all: kernel.img
 
 CFLAGS += -pedantic -pedantic-errors -nostdlib -nostartfiles -ffreestanding -Wall -Wextra -Werror -Wshadow
 CFLAGS += -std=gnu99
-CFLAGS += -O0
 CFLAGS += -I.
-CFLAGS += -g
-CFLAGS += -DDEBUG
 CFLAGS += -DBUILDING_RPIBOOT
+
+#ifdef DEBUG
+CFLAGS += -g -O0
+ASSERT_OBJS = assert.o
+#else
+CFLAGS += -O3
+#endif
 
 ASFLAGS += -Wa,-mcpu=arm1176jzf-s
 
@@ -75,7 +79,9 @@ LOGFILE_OBJS = log.o
 #endif
 
 #ifdef HAVE_UNWIND_H
+#ifdef DEBUG
 CFLAGS += -funwind-tables
+#endif
 #endif
 
 /* Thanks to James Cone (https://github.com/JamesC1) for the idea here */
@@ -93,9 +99,9 @@ $(FONT_OBJS): $(FONT_BIN) $(MAKEFILE) $(CONFIG_H)
 MBR_OBJS = mbr.o
 #endif
 
-OBJS = main.o boot.o libfs.o $(SERIAL_OBJS) stdio.o stream.o atag.o mbox.o $(FONT_OBJS) $(FB_OBJS) stdlib.o mmio.o heap.o malloc.o printf.o $(SD_OBJS) block.o $(MBR_OBJS) $(FAT_OBJS) vfs.o multiboot.o memchunk.o $(EXT2_OBJS) elf.o timer.o util.o strtol.o strtoll.o assert.o ctype.o $(USB_OBJS) output.o $(RASPBOOTIN_OBJS) $(RAMDISK_OBJS) $(NOFS_OBJS) $(CACHE_OBJS) $(LOGFILE_OBJS) crc32.o
+OBJS = main.o boot.o libfs.o $(SERIAL_OBJS) stdio.o stream.o atag.o mbox.o $(FONT_OBJS) $(FB_OBJS) stdlib.o mmio.o heap.o malloc.o printf.o $(SD_OBJS) block.o $(MBR_OBJS) $(FAT_OBJS) vfs.o multiboot.o memchunk.o $(EXT2_OBJS) elf.o timer.o strtol.o strtoll.o $(ASSERT_OBJS) ctype.o $(USB_OBJS) output.o $(RASPBOOTIN_OBJS) $(RAMDISK_OBJS) $(NOFS_OBJS) $(CACHE_OBJS) $(LOGFILE_OBJS) crc32.o
 
-LIBFS_OBJS = libfs.o $(SD_OBJS) block.o $(MBR_OBJS) $(FAT_OBJS) vfs.o $(EXT2_OBJS) timer.o util.o mmio.o $(RASPBOOTIN_OBJS) $(RAMDISK_OBJS) $(NOFS_OBJS) $(CACHE_OBJS) crc32.o
+LIBFS_OBJS = libfs.o $(SD_OBJS) block.o $(MBR_OBJS) $(FAT_OBJS) vfs.o $(EXT2_OBJS) timer.o mmio.o $(RASPBOOTIN_OBJS) $(RAMDISK_OBJS) $(NOFS_OBJS) $(CACHE_OBJS) crc32.o $(ASSERT_OBJS)
 
 .PHONY: clean
 .PHONY: qemu
