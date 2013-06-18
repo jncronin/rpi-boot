@@ -246,9 +246,9 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 	}
 	else
 	{
-		printf("MAIN: Found bootloader configuration: %s\n", found_cfg);
 		long flen = fsize(f);
-		char *buf = (char *)malloc(flen);
+		printf("MAIN: Found bootloader configuration: %s\n", found_cfg);
+		char *buf = (char *)malloc(flen+1);
 		buf[flen] = 0;		// null terminate
 		fread(buf, 1, flen, f);
 		fclose(f);
