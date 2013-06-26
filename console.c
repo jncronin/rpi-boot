@@ -57,9 +57,6 @@ extern uint8_t		FONT[];
 #define BIT_SHIFT (7 - s_bit_no)
 #endif
 
-extern void memory_barrier();
-extern uint32_t read_sctlr();
-
 #define DEF_FORE	0xffffffff
 #define DEF_BACK	0x00000000
 
