@@ -158,10 +158,6 @@ int fb_init()
 	if((fb_addr == 0) || (fb_size == 0))
 		return FB_FAIL_INVALID_TAG_DATA;
 
-	puts("fb_init, fb_addr:");
-	puthex(fb_addr);
-	puts("");
-
 	/* Get the pitch of the display */
 	mailbuffer[0] = 7 * 4;
 	mailbuffer[1] = 0;
