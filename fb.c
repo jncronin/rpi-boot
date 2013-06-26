@@ -25,8 +25,6 @@
 #include "mbox.h"
 #include "fb.h"
 
-extern void memory_barrier();
-
 #define WIDTH		640
 #define HEIGHT		480
 #define BYTES_PER_PIXEL	2
