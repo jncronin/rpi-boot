@@ -26,6 +26,10 @@
 
 void assertStackDump(void);
 
+#ifdef DEBUG2
+#define DEBUG
+#endif
+
 #ifdef DEBUG
 #define assert(x) \
 if(!(x)) {printf("ASSERT: failed: '%s'\n", #x); assertStackDump(); abort();}
