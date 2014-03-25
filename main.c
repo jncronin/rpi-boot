@@ -151,7 +151,14 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 #ifdef ENABLE_FRAMEBUFFER
 	int result = fb_init();
 	if(result == 0)
+	{
 		puts("Successfully set up frame buffer");
+#ifdef DEBUG2
+		printf("FB: width: %i, height: %i, bpp: %i\n",
+			fb_get_width(), fb_get_height(),
+			fb_get_bpp());
+#endif
+	}
 	else
 	{
 		puts("Error setting up framebuffer:");

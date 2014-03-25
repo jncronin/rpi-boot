@@ -1408,6 +1408,9 @@ int sd_card_init(struct block_device **dev)
 	control1 |= 4;
 	mmio_write(EMMC_BASE + EMMC_CONTROL1, control1);
 	usleep(2000);
+#ifdef EMMC_DEBUG
+	printf("EMMC: SD clock enabled\n");
+#endif
 
 	// Mask off sending interrupts to the ARM
 	mmio_write(EMMC_BASE + EMMC_IRPT_EN, 0);
@@ -1420,6 +1423,9 @@ int sd_card_init(struct block_device **dev)
 #endif
 	mmio_write(EMMC_BASE + EMMC_IRPT_MASK, irpt_mask);
 
+#ifdef EMMC_DEBUG
+	printf("EMMC: interrupts disabled\n");
+#endif
 	usleep(2000);
 
     // Prepare the device structure
@@ -1440,6 +1446,10 @@ int sd_card_init(struct block_device **dev)
     ret->bd.supports_multiple_block_read = 1;
     ret->bd.supports_multiple_block_write = 1;
 	ret->base_clock = base_clock;
+
+#ifdef EMMC_DEBUG
+	printf("EMMC: device structure created\n");
+#endif
 
 	// Send CMD0 to the card (reset to idle state)
 	sd_issue_command(ret, GO_IDLE_STATE, 0, 500000);
