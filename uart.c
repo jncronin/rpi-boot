@@ -78,6 +78,10 @@ int uart_putc(int byte)
         usleep(2000);
 
 	mmio_write(UART0_DR, (uint8_t)(byte & 0xff));
+
+	if(byte == '\n')
+		uart_putc('\r');
+
 	return byte;
 }
 
