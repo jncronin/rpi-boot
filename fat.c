@@ -234,8 +234,8 @@ int fat_init(struct block_device *parent, struct fs **fs)
 	if(fat_size == 0)
 	    fat_size = bs->ext.fat32.table_size_32;
 
-	uint32_t data_sec = total_sectors - bs->reserved_sector_count + bs->table_count * fat_size +
-	    ret->root_dir_sectors;
+	uint32_t data_sec = total_sectors - (bs->reserved_sector_count + 
+			bs->table_count * fat_size + ret->root_dir_sectors);
 
 	uint32_t total_clusters = data_sec / bs->sectors_per_cluster;
 	if(total_clusters < 4085)
