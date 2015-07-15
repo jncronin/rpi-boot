@@ -39,6 +39,7 @@
 #include "block.h"
 #include "timer.h"
 #include "util.h"
+#include "bcm2836.h"
 
 #ifdef DEBUG2
 #define EMMC_DEBUG
@@ -126,7 +127,7 @@ struct emmc_block_dev
 	uint32_t base_clock;
 };
 
-#define EMMC_BASE		0x20300000
+// #define EMMC_BASE		0x20300000
 #define	EMMC_ARG2		0
 #define EMMC_BLKSIZECNT		4
 #define EMMC_ARG1		8

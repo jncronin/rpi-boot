@@ -13,9 +13,9 @@ DISASM_DUMP = kernel.list
 
 all: kernel.img
 
-CFLAGS += -pedantic -pedantic-errors -nostdlib -nostartfiles -ffreestanding -Wall -Wextra -Werror -Wshadow
+CFLAGS += -nostdlib -nostartfiles -ffreestanding -Wall -Wextra -Werror -Wshadow
 CFLAGS += -std=gnu99
-CFLAGS += -I.
+CFLAGS += -I. -I./cmsis
 CFLAGS += -DBUILDING_RPIBOOT
 
 #ifdef DEBUG

@@ -24,8 +24,9 @@
 #include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include "bcm2836.h"
 
-#define TIMER_CLO		0x20003004
+#define TIMER_CLO		SYSTIMER_CLO
 
 int usleep(useconds_t usec)
 {

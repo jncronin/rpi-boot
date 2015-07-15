@@ -22,13 +22,15 @@
 #ifndef DWC_USB_H
 #define DWC_USB_H
 
+#include "bcm2836.h"
+
 // The FIFOs - one page per FIFO
 #define DWC_USB_FIFO_SIZE		0x1000
 #define DWC_USB_FIFO_LEN		(3 * DWC_USB_FIFO_SIZE)
 #define DWC_USB_FIFO_START		(0x100000 - DWC_USB_FIFO_LEN)
 
 // Register addresses
-#define DWC_USB_BASE			0x20980000
+// #define DWC_USB_BASE			0x20980000
 #define DWC_USB_OTG_CTRL		0
 #define DWC_USB_OTG_IRPT		4
 #define DWC_USB_AHB_CONF		8
