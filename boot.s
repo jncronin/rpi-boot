@@ -44,8 +44,7 @@ Start:
 	blo .loop
 
 	/* branch and link to kernel_main */
-	ldr r3, =kernel_main
-	blx r3		/* blx may switch to Thumb mode, depending on the target address */
+	bl main
 
 halt:
 	wfe		/* equivalent of x86 HLT instruction */

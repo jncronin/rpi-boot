@@ -34,6 +34,7 @@
 #include "dwc_usb.h"
 #include "output.h"
 #include "log.h"
+#include "gpio.h"
 
 #define UNUSED(x) (void)(x)
 
@@ -130,12 +131,17 @@ extern int def_stream_putc(int, FILE*);
 
 int cfg_parse(char *buf);
 
-void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
+void main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 {
 	atag_cmd_line = (void *)0;
 	_atags = atags;
 	_arm_m_type = arm_m_type;
 	UNUSED(boot_dev);
+
+	// set actled on
+	gpio_t act;
+	gpio_init_out(&act, LED_ACT);
+	gpio_write(&act, 0);
 
 	// First use the serial console
 	stdout_putc = split_putc;
