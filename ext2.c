@@ -400,16 +400,17 @@ int ext2_init(struct block_device *parent, struct fs **fs)
 	ret->pointers_per_indirect_block_3 = ret->pointers_per_indirect_block_2 *
 		ret->pointers_per_indirect_block;
 
+	uint32_t bgdt_size = ret->total_groups * sizeof(struct ext2_bgd);
+	// round up to a multiple of block_size
+	if(bgdt_size % ret->b.block_size)
+		bgdt_size = (bgdt_size / ret->b.block_size + 1) * ret->b.block_size;
+
+	ret->bgdt = (struct ext2_bgd *)malloc((size_t)bgdt_size);
+
 	// Read the block group descriptor table
-	ret->bgdt = (struct ext2_bgd *)malloc(ret->total_groups * sizeof(struct ext2_bgd));
 	int bgdt_block = 1;
 	if(ret->b.block_size == 1024)
 		bgdt_block = 2;
-
-    uint32_t bgdt_size = ret->total_groups * sizeof(struct ext2_bgd);
-    // round up to a multiple of block_size
-    if(bgdt_size % ret->b.block_size)
-        bgdt_size = (bgdt_size / ret->b.block_size + 1) * ret->b.block_size;
 
 	block_read(parent, (uint8_t *)ret->bgdt, bgdt_size,
 			get_sector_num(ret, bgdt_block));
