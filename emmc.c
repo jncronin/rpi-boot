@@ -1292,10 +1292,10 @@ int sd_card_init(struct block_device **dev)
 	if(bcm_2708_power_cycle() != 0)
 	{
 		printf("EMMC: BCM2708 controller did not power cycle successfully\n");
-		return -1;
 	}
 #ifdef EMMC_DEBUG
-	printf("EMMC: BCM2708 controller power-cycled\n");
+	else
+		printf("EMMC: BCM2708 controller power-cycled\n");
 #endif
 #endif
 
