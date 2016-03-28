@@ -1343,21 +1343,6 @@ int sd_card_init(struct block_device **dev)
 	printf("EMMC: capabilities: %08x%08x\n", capabilities_1, capabilities_0);
 #endif
 
-	// Check for a valid card
-#ifdef EMMC_DEBUG
-	printf("EMMC: checking for an inserted card\n");
-#endif
-    TIMEOUT_WAIT(mmio_read(EMMC_BASE + EMMC_STATUS) & (1 << 16), 500000);
-	uint32_t status_reg = mmio_read(EMMC_BASE + EMMC_STATUS);
-	if((status_reg & (1 << 16)) == 0)
-	{
-		printf("EMMC: no card inserted\n");
-		return -1;
-	}
-#ifdef EMMC_DEBUG
-	printf("EMMC: status: %08x\n", status_reg);
-#endif
-
 	// Clear control2
 	mmio_write(EMMC_BASE + EMMC_CONTROL2, 0);
 
