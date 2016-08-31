@@ -132,6 +132,11 @@ int cfg_parse(char *buf);
 
 void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 {
+	// Hack for newer firmware - assume if atags not specified then they are at 0x100
+	// MAY BREAK IN FUTURE
+	if(atags == 0x0)
+		atags = 0x100;
+	
 	atag_cmd_line = (void *)0;
 	_atags = atags;
 	_arm_m_type = arm_m_type;

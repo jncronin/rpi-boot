@@ -116,8 +116,11 @@ libfs.a: $(LIBFS_OBJS)
 kernel.elf: $(OBJS) linker.ld
 	$(ARMCC) -nostdlib $(OBJS) -Wl,-T,linker.ld -o $@ -lgcc
 
-kernel.img: kernel.elf
-	$(ARMOBJCOPY) kernel.elf -O binary kernel.img
+kernel.img-preheader: kernel.elf
+	$(ARMOBJCOPY) kernel.elf -O binary kernel.img-preheader
+
+kernel.img: kernel.img-preheader mkknlimg
+	./mkknlimg kernel.img-preheader kernel.img
 
 kernel-qemu.elf: $(OBJS) linker-qemu.ld
 	$(ARMCC) -nostdlib $(OBJS) -Wl,-T,linker-qemu.ld -o $@ -lgcc
@@ -126,7 +129,7 @@ kernel-qemu.img: kernel-qemu.elf
 	$(ARMOBJCOPY) kernel-qemu.elf -O binary kernel-qemu.img
 
 clean:
-	$(RM) -f $(OBJS) $(DISASM_DUMP) kernel.elf kernel.img kernel-qemu.img kernel-qemu.elf $(MAKEFILE)
+	$(RM) -f $(OBJS) $(DISASM_DUMP) kernel.elf kernel.img kernel-qemu.img kernel-qemu.elf $(MAKEFILE) kernel.img-preheader
 
 %.o: %.c $(MAKEFILE) $(CONFIG_H)
 	$(ARMCC) $(CFLAGS) -include $(CONFIG_H) -c $< -o $@
