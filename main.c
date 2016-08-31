@@ -1,4 +1,4 @@
-/* Copyright (C) 2013 by John Cronin <jncronin@tysos.org>
+/* Copyright (C) 2013-2016 by John Cronin <jncronin@tysos.org>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <libfdt.h>
 #include "uart.h"
 #include "atag.h"
 #include "fb.h"
@@ -34,15 +35,17 @@
 #include "dwc_usb.h"
 #include "output.h"
 #include "log.h"
+#include "rpifdt.h"
 
 #define UNUSED(x) (void)(x)
 
 uint32_t _atags;
 uint32_t _arm_m_type;
+uint32_t base_adjust = BASE_ADJUST_V1;
 
 char rpi_boot_name[] = "rpi_boot";
 
-static char *atag_cmd_line;
+const char *atag_cmd_line;
 
 static char *boot_cfg_names[] =
 {
@@ -52,73 +55,18 @@ static char *boot_cfg_names[] =
 	0
 };
 
-void atag_cb(struct atag *tag)
+static void mem_cb(uint32_t addr, uint32_t len)
 {
-	switch(tag->hdr.tag)
+#ifdef DEBUG
+	printf("MEMORY: addr: %x, len: %x\n", addr, len);
+#endif
+
+	if(addr < 0x100000)
 	{
-		case ATAG_CORE:
-#ifdef ATAG_DEBUG
-			puts("ATAG_CORE");
-			if(tag->hdr.size == 5)
-			{
-				puts("flags");
-				puthex(tag->u.core.flags);
-				puts("");
-
-				puts("pagesize");
-				puthex(tag->u.core.pagesize);
-				puts("");
-
-				puts("rootdev");
-				puthex(tag->u.core.rootdev);
-				puts("");
-			}
-#endif
-			break;
-
-		case ATAG_MEM:
-#ifdef ATAG_DEBUG
-			puts("ATAG_MEM");
-
-			puts("start");
-			puthex(tag->u.mem.start);
-			puts("");
-
-			puts("size");
-			puthex(tag->u.mem.size);
-			puts("");
-#endif
-
-			{
-				uint32_t start = tag->u.mem.start;
-				uint32_t size = tag->u.mem.size;
-
-				if(start < 0x100000)
-					start = 0x100000;
-				size -= 0x100000;
-				chunk_register_free(start, size);
-			}
-
-			break;
-
-		case ATAG_NONE:
-			break;
-
-		case ATAG_CMDLINE:
-#ifdef ATAG_DEBUG
-			puts("ATAG_CMDLINE");
-			puts(&tag->u.cmdline.cmdline[0]);
-#endif
-			atag_cmd_line = &tag->u.cmdline.cmdline[0];
-			break;
-
-		default:
-			puts("Unknown ATAG");
-			puthex(tag->hdr.tag);
-			break;
-	};
-
-	puts("");
+		addr = 0x100000;
+		len -= 0x100000;
+	}
+	chunk_register_free(addr, len);
 }
 
 void libfs_init();
@@ -129,6 +77,8 @@ extern int (*stream_putc)(int, FILE*);
 extern int def_stream_putc(int, FILE*);
 
 int cfg_parse(char *buf);
+
+int conf_source = 0;
 
 void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 {
@@ -150,8 +100,34 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 	output_init();
 	output_enable_uart();
 
-	// Dump ATAGS
-	parse_atags(atags, atag_cb);
+	// dump arguments to main
+#ifdef DEBUG
+	printf("MAIN: boot_dev: %x, arm_m_type: %i, atags: %x\n", boot_dev,
+			arm_m_type, atags);
+#endif
+
+	// try and interpret device tree/atags
+	if(fdt_check_header((const void *)atags) == 0)
+		conf_source = 3;
+	else if(fdt_check_header((const void *)0) == 0)
+		conf_source = 4;
+	else if(check_atags((const void *)atags) == 0)
+		conf_source = 1;
+	else if(check_atags((const void *)0) == 0)
+		conf_source = 2;
+
+	switch(conf_source)
+	{
+		case 1:
+		case 2:
+		case 3:
+		case 4:
+			parse_atag_or_dtb(mem_cb);
+			break;
+		default:
+			printf("MAIN: ERROR no device tree or ATAGS found\n");
+			return;
+	}
 
 #ifdef ENABLE_FRAMEBUFFER
 	int result = fb_init();

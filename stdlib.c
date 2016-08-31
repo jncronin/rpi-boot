@@ -152,3 +152,67 @@ char *strupr(char *s)
 	return ret;
 }
 
+void *memmove(void *dest, const void *src, size_t n)
+{
+	char *d = (char *)dest;
+	const char *s = (const char *)src;
+
+	if(d > s)
+		return memcpy(dest, src, n);
+	else
+	{
+		d += n;
+		s += n;
+
+		while(n--)
+			*--d = *--s;
+		return dest;
+	}
+}
+
+int memcmp(const void *s1, const void *s2, size_t n)
+{
+	const char *s1c = (const char *)s1;
+	const char *s2c = (const char *)s2;
+
+	while(n--)
+	{
+		int v = *s1c++ - *s2c++;
+		if(v != 0)
+			return v;
+	}
+	return 0;
+}
+
+size_t strnlen(const char *s, size_t maxlen)
+{
+	size_t cnt = 0;
+	while(*s++ && maxlen--)
+		cnt++;
+	return cnt;
+}
+
+char *strchr(const char *s, int c)
+{
+	const char *sc = (const char *)s;
+	while(*sc)
+	{
+		if(*sc == c)
+			return (void *)sc;
+		sc++;
+	}
+	return NULL;
+}
+
+void *memchr(const void *s, int c, size_t n)
+{
+	const char *sc = (const char *)s;
+	while(n--)
+	{
+		if(*sc == c)
+			return (void *)sc;
+		sc++;
+	}
+	return NULL;
+}
+

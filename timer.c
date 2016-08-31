@@ -23,6 +23,7 @@
 #include "mmio.h"
 #include <errno.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 #define TIMER_CLO		0x20003004
@@ -48,6 +49,9 @@ struct timer_wait register_timer(useconds_t usec)
 	uint32_t cur_timer = mmio_read(TIMER_CLO);
 	uint32_t trig = cur_timer + (uint32_t)usec;
 
+	if(cur_timer == 0)
+		trig = 0;
+
 	tw.trigger_value = trig;
 	if(trig > cur_timer)
 		tw.rollover = 0;
@@ -59,6 +63,9 @@ struct timer_wait register_timer(useconds_t usec)
 int compare_timer(struct timer_wait tw)
 {
 	uint32_t cur_timer = mmio_read(TIMER_CLO);
+
+	if(tw.trigger_value == 0)
+		return 1;
 
 	if(cur_timer < tw.trigger_value)
 	{

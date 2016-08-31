@@ -76,6 +76,9 @@
 // Enable EXPERIMENTAL (and possibly DANGEROUS) SD write support
 #define SD_WRITE_SUPPORT
 
+// Allow old sdhci versions (may cause errors)
+#define EMMC_ALLOW_OLD_SDHCI
+
 // The particular SDHCI implementation
 #define SDHCI_IMPLEMENTATION_GENERIC        0
 #define SDHCI_IMPLEMENTATION_BCM_2708       1
@@ -470,7 +473,7 @@ static uint32_t sd_get_base_clock_hz()
     capabilities_0 = mmio_read(EMMC_BASE + EMMC_CAPABILITIES_0);
     base_clock = ((capabilities_0 >> 8) & 0xff) * 1000000;
 #elif SDHCI_IMPLEMENTATION == SDHCI_IMPLEMENTATION_BCM_2708
-	uint32_t mb_addr = 0x40007000;		// 0x7000 in L2 cache coherent mode
+	uint32_t mb_addr = 0x00007000;		// 0x7000 in L2 cache coherent mode
 	volatile uint32_t *mailbuffer = (uint32_t *)mb_addr;
 
 	/* Get the base clock rate */
@@ -649,8 +652,10 @@ static uint32_t sd_get_clock_divider(uint32_t base_clock, uint32_t target_rate)
 
     // Currently only 10-bit divided clock mode is supported
 
+#ifndef EMMC_ALLOW_OLD_SDHCI
     if(hci_ver >= 2)
     {
+#endif
         // HCI version 3 or greater supports 10-bit divided clock mode
         // This requires a power-of-two divider
 
@@ -698,12 +703,14 @@ static uint32_t sd_get_clock_divider(uint32_t base_clock, uint32_t target_rate)
 #endif
 
         return ret;
+#ifndef EMMC_ALLOW_OLD_SDHCI
     }
     else
     {
         printf("EMMC: unsupported host version\n");
         return SD_GET_CLOCK_DIVIDER_FAIL;
     }
+#endif
 
 }
 
@@ -1309,8 +1316,12 @@ int sd_card_init(struct block_device **dev)
 
 	if(hci_ver < 2)
 	{
+#ifdef EMMC_ALLOW_OLD_SDHCI
+		printf("EMMC: WARNING: old SDHCI version detected\n");
+#else
 		printf("EMMC: only SDHCI versions >= 3.0 are supported\n");
 		return -1;
+#endif
 	}
 
 	// Reset the controller

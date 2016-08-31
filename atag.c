@@ -21,10 +21,23 @@
 
 #include <stdint.h>
 #include "atag.h"
+#include "rpifdt.h"
 
 #define tag_next(t)		(struct atag *)((uint32_t *)(t) + (t)->hdr.size)
 
-void parse_atags(uint32_t atags, void (*cb)(struct atag *))
+extern const char *atag_cmd_line;
+extern int conf_source;
+extern uint32_t _atags;
+
+int check_atags(const void *atags)
+{
+	const struct atag *cur = (const struct atag *)atags;
+	if(cur->hdr.tag == ATAG_CORE)
+		return 0;
+	return -1;
+}
+
+void parse_atags(uint32_t atags, void (*mem_cb)(uint32_t addr, uint32_t len))
 {
 	if(atags == 0)
 		return;
@@ -35,8 +48,31 @@ void parse_atags(uint32_t atags, void (*cb)(struct atag *))
 	{
 		prev = cur;
 
-		cb(cur);
+		if(cur->hdr.tag == ATAG_MEM)
+			mem_cb(cur->u.mem.start, cur->u.mem.size);
+		else if(cur->hdr.tag == ATAG_CMDLINE)
+			atag_cmd_line = &cur->u.cmdline.cmdline[0];
+
 		cur = tag_next(cur);
 	} while(prev->hdr.tag != ATAG_NONE);
+}
+
+void parse_atag_or_dtb(void (*mem_cb)(uint32_t addr, uint32_t len))
+{
+	switch(conf_source)
+	{
+		case 1:
+			parse_atags(_atags, mem_cb);
+			break;
+		case 2:
+			parse_atags(0, mem_cb);
+			break;
+		case 3:
+			parse_dtb((const void *)_atags, mem_cb);
+			break;
+		case 4:
+			parse_dtb((const void *)0, mem_cb);
+			break;
+	}
 }
 

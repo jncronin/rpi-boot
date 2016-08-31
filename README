@@ -99,3 +99,18 @@ from the various Multiboot structures (or copied them elsewhere).
 
 Because of this, rpi-boot will not boot kernels which are linked below 1 MiB.
 
+
+Licence
+-------
+
+rpi-boot is released under a MIT licence (see main.c for an example).
+
+mkknlimg is released under the GPL (see LICENCE.GPL)
+The rpi device tree dtb files are Copyright Broadcom (see LICENCE.broadcom)
+
+The contents of the libdtc directory are the Device Tree Compiler.  See
+libdtc/libfdt/libfdt.h for conditions.
+
+strstr.c is taken from the musl C library (see LICENCE.musl)
+
+

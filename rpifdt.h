@@ -1,4 +1,4 @@
-/* Copyright (C) 2013 by John Cronin <jncronin@tysos.org>
+/* Copyright (C) 2016 by John Cronin <jncronin@tysos.org>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -19,24 +19,12 @@
  * THE SOFTWARE.
  */
 
+#ifndef RPIFDT_H
+#define RPIFDT_H
+
 #include <stdint.h>
-#include "mmio.h"
 
-extern void memory_barrier();
+void parse_dtb(const void *dtb, void (*mem_cb)(uint32_t addr, uint32_t length));
 
-extern uint32_t base_adjust;
-
-inline void mmio_write(uint32_t reg, uint32_t data)
-{
-	memory_barrier();
-	*(volatile uint32_t *)(reg + base_adjust) = data;
-	memory_barrier();
-}
-
-inline uint32_t mmio_read(uint32_t reg)
-{
-	memory_barrier();
-	return *(volatile uint32_t *)(reg + base_adjust);
-	memory_barrier();
-}
+#endif
 

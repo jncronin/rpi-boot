@@ -45,7 +45,7 @@ static inline void write_byte(uint8_t byte, uint8_t *buf, int offset)
     buf[offset] = byte;
 }
 
-static inline uint32_t read_word(uint8_t *buf, int offset)
+static inline uint32_t read_word(const uint8_t *buf, int offset)
 {
 	uint32_t b0 = buf[offset + 0] & 0xff;
 	uint32_t b1 = buf[offset + 1] & 0xff;
@@ -53,6 +53,16 @@ static inline uint32_t read_word(uint8_t *buf, int offset)
 	uint32_t b3 = buf[offset + 3] & 0xff;
 
 	return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
+}
+
+static inline uint32_t read_wordbe(const uint8_t *buf, int offset)
+{
+	uint32_t b0 = buf[offset + 0] & 0xff;
+	uint32_t b1 = buf[offset + 1] & 0xff;
+	uint32_t b2 = buf[offset + 2] & 0xff;
+	uint32_t b3 = buf[offset + 3] & 0xff;
+
+	return b3 | (b2 << 8) | (b1 << 16) | (b0 << 24);
 }
 
 static inline uint16_t read_halfword(uint8_t *buf, int offset)

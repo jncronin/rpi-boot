@@ -49,8 +49,8 @@ static int method_entry_addr(char *args);
 static int method_binary_load_addr(char *args);
 static int method_console_log(char *args);
 
-static void atag_cb(struct atag *);
-static void atag_cb2(struct atag *);
+static void mem_cb(uint32_t addr, uint32_t len);
+static void mem_cb2(uint32_t addr, uint32_t len);
 
 extern uint32_t _atags;
 extern uint32_t _arm_m_type;
@@ -325,7 +325,7 @@ int method_multiboot(char *args)
 	FILE *fp = fopen(file, "r");
 	if(!fp)
 	{
-		printf("MULTIBOOT: cannot load %s; errno=$d\n", file, errno);
+		printf("MULTIBOOT: cannot load %s; errno=%d\n", file, errno);
 		return -1;
 	}
 #ifdef MULTIBOOT_DEBUG
@@ -382,7 +382,7 @@ int method_multiboot(char *args)
 		// Pass memory information
 
 		// First count the number of memory sections and set mem_upper
-		parse_atags(_atags, atag_cb);
+		parse_atag_or_dtb(mem_cb);
 
 		// Allocate the mmap buffer
 		mbinfo->mmap_addr = (uint32_t)malloc(mbinfo->mmap_length);
@@ -393,7 +393,7 @@ int method_multiboot(char *args)
 		mbinfo->mmap_addr += 4;
 
 		// Now fill in the buffer
-		parse_atags(_atags, atag_cb2);
+		parse_atag_or_dtb(mem_cb2);
 
 		// Set flags to say we've provided memory info
 		mbinfo->flags |= (1 << 0);
@@ -978,37 +978,26 @@ int method_binary_load_addr(char *args)
 	}
 }
 
-void atag_cb(struct atag *tag)
+void mem_cb(uint32_t start, uint32_t size)
 {
-	if(tag->hdr.tag == ATAG_MEM)
-	{
-		uint32_t start = tag->u.mem.start;
-		uint32_t size = tag->u.mem.size;
-		uint32_t end = start + size;
+	uint32_t end = start + size;
 
-		// mem_upper is number of kiB beyond 1 MiB
-		if((start < 0x100000) && (end > 0x100000))
-			mbinfo->mem_upper = end / 1024;
+	// mem_upper is number of kiB beyond 1 MiB
+	if((start < 0x100000) && (end > 0x100000))
+		mbinfo->mem_upper = end / 1024;
 
-		mbinfo->mmap_length += 24;
-	}
+	mbinfo->mmap_length += 24;
 }
 
-void atag_cb2(struct atag *tag)
+void mem_cb2(uint32_t start, uint32_t size)
 {
-	if(tag->hdr.tag == ATAG_MEM)
-	{
-		uint32_t start = tag->u.mem.start;
-		uint32_t size = tag->u.mem.size;
+	mmap_ptr[0] = 24;	// size of the tag
+	mmap_ptr[1] = start;	// base addr
+	mmap_ptr[2] = 0;	// upper 32 bits of base addr
+	mmap_ptr[3] = size;	// length
+	mmap_ptr[4] = 0;	// upper 32 bits of length
+	mmap_ptr[5] = 1;	// available
 
-		mmap_ptr[0] = 24;	// size of the tag
-		mmap_ptr[1] = start;	// base addr
-		mmap_ptr[2] = 0;	// upper 32 bits of base addr
-		mmap_ptr[3] = size;	// length
-		mmap_ptr[4] = 0;	// upper 32 bits of length
-		mmap_ptr[5] = 1;	// available
-
-		mmap_ptr += 6;		// skip to next
-	}
+	mmap_ptr += 6;		// skip to next
 }
 

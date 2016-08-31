@@ -7,15 +7,19 @@ ARMOBJDUMP ?= arm-none-eabi-objdump
 ARMAR ?= arm-none-eabi-ar
 QEMU ?= qemu-system-arm
 
+QEMUDTB ?= bcm2709-rpi-2-b.dtb
+
 MAKEFILE ?= Makefile.rpi-boot
 CONFIG_H = config.h
 DISASM_DUMP = kernel.list
 
+LIBFDT = libdtc/libftd/libftd.a
+
 all: kernel.img
 
-CFLAGS += -pedantic -pedantic-errors -nostdlib -nostartfiles -ffreestanding -Wall -Wextra -Werror -Wshadow
+CFLAGS += -nostdlib -nostartfiles -ffreestanding -Wall -Wextra -Werror -Wshadow
 CFLAGS += -std=gnu99
-CFLAGS += -I.
+CFLAGS += -I. -Ilibdtc/libfdt
 CFLAGS += -DBUILDING_RPIBOOT
 
 #ifdef DEBUG
@@ -27,7 +31,7 @@ CFLAGS += -O3
 
 ASFLAGS += -Wa,-mcpu=arm1176jzf-s
 
-QEMUFLAGS = -cpu arm1176 -m 256 -M raspi -kernel kernel-qemu.img -usb -nographic 
+QEMUFLAGS = -cpu arm1176 -m 256 -M raspi2 -kernel kernel-qemu.img -usb -nographic -dtb $(QEMUDTB)
 SDFLAGS = -sd sd.img
 
 #ifdef ENABLE_FRAMEBUFFER
@@ -99,7 +103,7 @@ $(FONT_OBJS): $(FONT_BIN) $(MAKEFILE) $(CONFIG_H)
 MBR_OBJS = mbr.o
 #endif
 
-OBJS = main.o boot.o libfs.o $(SERIAL_OBJS) stdio.o stream.o atag.o mbox.o $(FONT_OBJS) $(FB_OBJS) stdlib.o mmio.o heap.o malloc.o printf.o $(SD_OBJS) block.o $(MBR_OBJS) $(FAT_OBJS) vfs.o multiboot.o memchunk.o $(EXT2_OBJS) elf.o timer.o strtol.o strtoll.o $(ASSERT_OBJS) ctype.o $(USB_OBJS) output.o $(RASPBOOTIN_OBJS) $(RAMDISK_OBJS) $(NOFS_OBJS) $(CACHE_OBJS) $(LOGFILE_OBJS) crc32.o
+OBJS = main.o boot.o libfs.o $(SERIAL_OBJS) stdio.o stream.o atag.o mbox.o $(FONT_OBJS) $(FB_OBJS) stdlib.o mmio.o heap.o malloc.o printf.o $(SD_OBJS) block.o $(MBR_OBJS) $(FAT_OBJS) vfs.o multiboot.o memchunk.o $(EXT2_OBJS) elf.o timer.o strtol.o strtoll.o $(ASSERT_OBJS) ctype.o $(USB_OBJS) output.o $(RASPBOOTIN_OBJS) $(RAMDISK_OBJS) $(NOFS_OBJS) $(CACHE_OBJS) $(LOGFILE_OBJS) crc32.o rpifdt.o strstr.o
 
 LIBFS_OBJS = libfs.o $(SD_OBJS) block.o $(MBR_OBJS) $(FAT_OBJS) vfs.o $(EXT2_OBJS) timer.o mmio.o $(RASPBOOTIN_OBJS) $(RAMDISK_OBJS) $(NOFS_OBJS) $(CACHE_OBJS) crc32.o $(ASSERT_OBJS)
 
@@ -107,14 +111,18 @@ LIBFS_OBJS = libfs.o $(SD_OBJS) block.o $(MBR_OBJS) $(FAT_OBJS) vfs.o $(EXT2_OBJ
 .PHONY: qemu
 .PHONY: qemu-gdb
 .PHONY: dump
+.PHONY: $(LIBFTD)
+
+$(LIBFDT):
+	cd libdtc && $(MAKE) libfdt/libfdt.a
 
 dump: $(DISASM_DUMP)
 
 libfs.a: $(LIBFS_OBJS)
 	$(ARMAR) rcs $@ $(LIBFS_OBJS)
 
-kernel.elf: $(OBJS) linker.ld
-	$(ARMCC) -nostdlib $(OBJS) -Wl,-T,linker.ld -o $@ -lgcc
+kernel.elf: $(OBJS) linker.ld $(LIBFDT)
+	$(ARMCC) -nostdlib $(OBJS) -Wl,-T,linker.ld -o $@ -Llibdtc/libfdt -lfdt -lgcc
 
 kernel.img-preheader: kernel.elf
 	$(ARMOBJCOPY) kernel.elf -O binary kernel.img-preheader
@@ -122,8 +130,8 @@ kernel.img-preheader: kernel.elf
 kernel.img: kernel.img-preheader mkknlimg
 	./mkknlimg kernel.img-preheader kernel.img
 
-kernel-qemu.elf: $(OBJS) linker-qemu.ld
-	$(ARMCC) -nostdlib $(OBJS) -Wl,-T,linker-qemu.ld -o $@ -lgcc
+kernel-qemu.elf: $(OBJS) linker-qemu.ld $(LIBFDT)
+	$(ARMCC) -nostdlib $(OBJS) -Wl,-T,linker-qemu.ld -o $@ -Llibdtc/libfdt -lfdt -lgcc
 
 kernel-qemu.img: kernel-qemu.elf
 	$(ARMOBJCOPY) kernel-qemu.elf -O binary kernel-qemu.img

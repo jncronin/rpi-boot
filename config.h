@@ -10,7 +10,11 @@
 	CFLAGS=-DEMMC_DEBUG make 
 	
 	Also affects compiler optimization flags */
-#undef DEBUG
+#define DEBUG 1
+
+/* Offset to adjust physical device addresses by (0 for rpi v1, 0x1f000000 for raspi2 in qemu) */
+#define BASE_ADJUST_V1 0
+#define BASE_ADJUST_V2 0x1f000000
 
 /* Enable the framebuffer as an output device */
 #define ENABLE_FRAMEBUFFER
