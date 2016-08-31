@@ -1,6 +1,3 @@
-[submodule "dtc"]
-	path = dtc
-	url = https://github.com/dgibson/dtc.git
 [submodule "libdtc"]
 	path = libdtc
 	url = https://github.com/jncronin/dtc.git
