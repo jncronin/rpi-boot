@@ -1,8 +1,16 @@
 language: c
 
+cache:
+        directories:
+                - $HOME/gcc-arm-none-eabi-5_2-2015q4
+
+install:
+  - export GCC_DIR=$HOME/gcc-arm-none-eabi-5_2-2015q4
+  - export GCC_ARCHIVE=$HOME/gcc-arm-none-eabi-5_2-2015q4-20151219-linux.tar.bz2
+  - export GCC_URL=https://launchpad.net/gcc-arm-embedded/5.0/5-2015-q4-major/+download/gcc-arm-none-eabi-5_2-2015q4-20151219-linux.tar.bz2
+  - if [ ! -e $GCC_DIR/bin/arm-none-eabi-g++ ]; then wget $GCC_URL -O $GCC_ARCHIVE; tar xfj $GCC_ARCHIVE -C $HOME; fi
+  - export PATH=$PATH:$GCC_DIR/bin
+
 script: make
 
-before_install:
-- sudo apt-get update -qq
-- sudo apt-get install -qq gcc-arm-none-eabi
 
