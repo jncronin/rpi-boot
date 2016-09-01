@@ -31,7 +31,7 @@ CFLAGS += -O3
 
 ASFLAGS += -Wa,-mcpu=arm1176jzf-s
 
-QEMUFLAGS = -cpu arm1176 -m 256 -M raspi2 -kernel kernel-qemu.img -usb -nographic -dtb $(QEMUDTB)
+QEMUFLAGS += -cpu arm1176 -m 256 -M raspi2 -kernel kernel-qemu.img -usb -nographic -dtb $(QEMUDTB)
 SDFLAGS = -sd sd.img
 
 #ifdef ENABLE_FRAMEBUFFER
@@ -147,7 +147,7 @@ clean:
 
 qemu: kernel-qemu.img
 	if [ -f sd.img ]; then \
-		$(QEMU) $(QEMUFLAGS) -sd sd.img; \
+		$(QEMU) $(QEMUFLAGS) -drive if=sd,format=raw,file=sd.img; \
 	else \
 		$(QEMU) $(QEMUFLAGS); \
 	fi
