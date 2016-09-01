@@ -64,7 +64,7 @@ int log_putc(int c)
 		log_buf[buf_ptr++] = c;
 		if(buf_ptr >= buf_size)
 		{
-			if((log_fp && log_fp->fflush_cb) || (last_update.rollover && compare_timer(last_update)))
+			if(log_fp && log_fp->fflush_cb)
 			{
 				log_fp->fflush_cb(log_fp);
 				last_update = register_timer(LOG_TIMEOUT);
@@ -92,7 +92,7 @@ int log_putc(int c)
 static int log_fflush(FILE *fp)
 {
 	// Flush the buffer
-	if(log_fp && log_buf)
+	if(fp && log_buf)
 	{
 		// Disable output to the log for the write
 		rpi_boot_output_state state = output_get_state();
