@@ -255,6 +255,13 @@ struct emmc_block_dev
 #define SD_VER_3            4
 #define SD_VER_4            5
 
+static uint32_t emmc_base = EMMC_BASE;
+
+void emmc_set_base(uint32_t base)
+{
+	emmc_base = base;
+}
+
 static char *sd_versions[] = { "unknown", "1.0 and 1.01", "1.10",
     "2.00", "3.0x", "4.xx" };
 
@@ -461,16 +468,16 @@ static uint32_t sd_acommands[] = {
 static void sd_power_off()
 {
 	/* Power off the SD card */
-	uint32_t control0 = mmio_read(EMMC_BASE + EMMC_CONTROL0);
+	uint32_t control0 = mmio_read(emmc_base + EMMC_CONTROL0);
 	control0 &= ~(1 << 8);	// Set SD Bus Power bit off in Power Control Register
-	mmio_write(EMMC_BASE + EMMC_CONTROL0, control0);
+	mmio_write(emmc_base + EMMC_CONTROL0, control0);
 }
 
 static uint32_t sd_get_base_clock_hz()
 {
     uint32_t base_clock;
 #if SDHCI_IMPLEMENTATION == SDHCI_IMPLEMENTATION_GENERIC
-    capabilities_0 = mmio_read(EMMC_BASE + EMMC_CAPABILITIES_0);
+    capabilities_0 = mmio_read(emmc_base + EMMC_CAPABILITIES_0);
     base_clock = ((capabilities_0 >> 8) & 0xff) * 1000000;
 #elif SDHCI_IMPLEMENTATION == SDHCI_IMPLEMENTATION_BCM_2708
 	uint32_t mb_addr = 0x00007000;		// 0x7000 in L2 cache coherent mode
@@ -727,24 +734,24 @@ static int sd_switch_clock_rate(uint32_t base_clock, uint32_t target_rate)
     }
 
     // Wait for the command inhibit (CMD and DAT) bits to clear
-    while(mmio_read(EMMC_BASE + EMMC_STATUS) & 0x3)
+    while(mmio_read(emmc_base + EMMC_STATUS) & 0x3)
         usleep(1000);
 
     // Set the SD clock off
-    uint32_t control1 = mmio_read(EMMC_BASE + EMMC_CONTROL1);
+    uint32_t control1 = mmio_read(emmc_base + EMMC_CONTROL1);
     control1 &= ~(1 << 2);
-    mmio_write(EMMC_BASE + EMMC_CONTROL1, control1);
+    mmio_write(emmc_base + EMMC_CONTROL1, control1);
     usleep(2000);
 
     // Write the new divider
 	control1 &= ~0xffe0;		// Clear old setting + clock generator select
     control1 |= divider;
-    mmio_write(EMMC_BASE + EMMC_CONTROL1, control1);
+    mmio_write(emmc_base + EMMC_CONTROL1, control1);
     usleep(2000);
 
     // Enable the SD clock
     control1 |= (1 << 2);
-    mmio_write(EMMC_BASE + EMMC_CONTROL1, control1);
+    mmio_write(emmc_base + EMMC_CONTROL1, control1);
     usleep(2000);
 
 #ifdef EMMC_DEBUG
@@ -756,11 +763,11 @@ static int sd_switch_clock_rate(uint32_t base_clock, uint32_t target_rate)
 // Reset the CMD line
 static int sd_reset_cmd()
 {
-    uint32_t control1 = mmio_read(EMMC_BASE + EMMC_CONTROL1);
+    uint32_t control1 = mmio_read(emmc_base + EMMC_CONTROL1);
 	control1 |= SD_RESET_CMD;
-	mmio_write(EMMC_BASE + EMMC_CONTROL1, control1);
-	TIMEOUT_WAIT((mmio_read(EMMC_BASE + EMMC_CONTROL1) & SD_RESET_CMD) == 0, 1000000);
-	if((mmio_read(EMMC_BASE + EMMC_CONTROL1) & SD_RESET_CMD) != 0)
+	mmio_write(emmc_base + EMMC_CONTROL1, control1);
+	TIMEOUT_WAIT((mmio_read(emmc_base + EMMC_CONTROL1) & SD_RESET_CMD) == 0, 1000000);
+	if((mmio_read(emmc_base + EMMC_CONTROL1) & SD_RESET_CMD) != 0)
 	{
 		printf("EMMC: CMD line did not reset properly\n");
 		return -1;
@@ -771,11 +778,11 @@ static int sd_reset_cmd()
 // Reset the CMD line
 static int sd_reset_dat()
 {
-    uint32_t control1 = mmio_read(EMMC_BASE + EMMC_CONTROL1);
+    uint32_t control1 = mmio_read(emmc_base + EMMC_CONTROL1);
 	control1 |= SD_RESET_DAT;
-	mmio_write(EMMC_BASE + EMMC_CONTROL1, control1);
-	TIMEOUT_WAIT((mmio_read(EMMC_BASE + EMMC_CONTROL1) & SD_RESET_DAT) == 0, 1000000);
-	if((mmio_read(EMMC_BASE + EMMC_CONTROL1) & SD_RESET_DAT) != 0)
+	mmio_write(emmc_base + EMMC_CONTROL1, control1);
+	TIMEOUT_WAIT((mmio_read(emmc_base + EMMC_CONTROL1) & SD_RESET_DAT) == 0, 1000000);
+	if((mmio_read(emmc_base + EMMC_CONTROL1) & SD_RESET_DAT) != 0)
 	{
 		printf("EMMC: DAT line did not reset properly\n");
 		return -1;
@@ -791,7 +798,7 @@ static void sd_issue_command_int(struct emmc_block_dev *dev, uint32_t cmd_reg, u
     // This is as per HCSS 3.7.1.1/3.7.2.2
 
     // Check Command Inhibit
-    while(mmio_read(EMMC_BASE + EMMC_STATUS) & 0x1)
+    while(mmio_read(emmc_base + EMMC_STATUS) & 0x1)
         usleep(1000);
 
     // Is the command with busy?
@@ -805,7 +812,7 @@ static void sd_issue_command_int(struct emmc_block_dev *dev, uint32_t cmd_reg, u
             // Not an abort command
 
             // Wait for the data line to be free
-            while(mmio_read(EMMC_BASE + EMMC_STATUS) & 0x2)
+            while(mmio_read(emmc_base + EMMC_STATUS) & 0x2)
                 usleep(1000);
         }
     }
@@ -816,7 +823,7 @@ static void sd_issue_command_int(struct emmc_block_dev *dev, uint32_t cmd_reg, u
     {
 #ifdef EMMC_DEBUG
         printf("SD: performing SDMA transfer, current INTERRUPT: %08x\n",
-               mmio_read(EMMC_BASE + EMMC_INTERRUPT));
+               mmio_read(emmc_base + EMMC_INTERRUPT));
 #endif
         is_sdma = 1;
     }
@@ -827,7 +834,7 @@ static void sd_issue_command_int(struct emmc_block_dev *dev, uint32_t cmd_reg, u
 
         // We need to define a 4 kiB aligned buffer to use here
         // Then convert its virtual address to a bus address
-        mmio_write(EMMC_BASE + EMMC_ARG2, SDMA_BUFFER_PA);
+        mmio_write(emmc_base + EMMC_ARG2, SDMA_BUFFER_PA);
     }
 
     // Set block size and block count
@@ -841,10 +848,10 @@ static void sd_issue_command_int(struct emmc_block_dev *dev, uint32_t cmd_reg, u
         return;
     }
     uint32_t blksizecnt = dev->block_size | (dev->blocks_to_transfer << 16);
-    mmio_write(EMMC_BASE + EMMC_BLKSIZECNT, blksizecnt);
+    mmio_write(emmc_base + EMMC_BLKSIZECNT, blksizecnt);
 
     // Set argument 1 reg
-    mmio_write(EMMC_BASE + EMMC_ARG1, argument);
+    mmio_write(emmc_base + EMMC_ARG1, argument);
 
     if(is_sdma)
     {
@@ -853,16 +860,16 @@ static void sd_issue_command_int(struct emmc_block_dev *dev, uint32_t cmd_reg, u
     }
 
     // Set command reg
-    mmio_write(EMMC_BASE + EMMC_CMDTM, cmd_reg);
+    mmio_write(emmc_base + EMMC_CMDTM, cmd_reg);
 
     usleep(2000);
 
     // Wait for command complete interrupt
-    TIMEOUT_WAIT(mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x8001, timeout);
-    uint32_t irpts = mmio_read(EMMC_BASE + EMMC_INTERRUPT);
+    TIMEOUT_WAIT(mmio_read(emmc_base + EMMC_INTERRUPT) & 0x8001, timeout);
+    uint32_t irpts = mmio_read(emmc_base + EMMC_INTERRUPT);
 
     // Clear command complete status
-    mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0xffff0001);
+    mmio_write(emmc_base + EMMC_INTERRUPT, 0xffff0001);
 
     // Test for errors
     if((irpts & 0xffff0001) != 0x1)
@@ -882,14 +889,14 @@ static void sd_issue_command_int(struct emmc_block_dev *dev, uint32_t cmd_reg, u
     {
         case SD_CMD_RSPNS_TYPE_48:
         case SD_CMD_RSPNS_TYPE_48B:
-            dev->last_r0 = mmio_read(EMMC_BASE + EMMC_RESP0);
+            dev->last_r0 = mmio_read(emmc_base + EMMC_RESP0);
             break;
 
         case SD_CMD_RSPNS_TYPE_136:
-            dev->last_r0 = mmio_read(EMMC_BASE + EMMC_RESP0);
-            dev->last_r1 = mmio_read(EMMC_BASE + EMMC_RESP1);
-            dev->last_r2 = mmio_read(EMMC_BASE + EMMC_RESP2);
-            dev->last_r3 = mmio_read(EMMC_BASE + EMMC_RESP3);
+            dev->last_r0 = mmio_read(emmc_base + EMMC_RESP0);
+            dev->last_r1 = mmio_read(emmc_base + EMMC_RESP1);
+            dev->last_r2 = mmio_read(emmc_base + EMMC_RESP2);
+            dev->last_r3 = mmio_read(emmc_base + EMMC_RESP3);
             break;
     }
 
@@ -915,9 +922,9 @@ static void sd_issue_command_int(struct emmc_block_dev *dev, uint32_t cmd_reg, u
 				printf("SD: multi block transfer, awaiting block %i ready\n",
 				cur_block);
 #endif
-            TIMEOUT_WAIT(mmio_read(EMMC_BASE + EMMC_INTERRUPT) & (wr_irpt | 0x8000), timeout);
-            irpts = mmio_read(EMMC_BASE + EMMC_INTERRUPT);
-            mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0xffff0000 | wr_irpt);
+            TIMEOUT_WAIT(mmio_read(emmc_base + EMMC_INTERRUPT) & (wr_irpt | 0x8000), timeout);
+            irpts = mmio_read(emmc_base + EMMC_INTERRUPT);
+            mmio_write(emmc_base + EMMC_INTERRUPT, 0xffff0000 | wr_irpt);
 
             if((irpts & (0xffff0000 | wr_irpt)) != wr_irpt)
             {
@@ -936,11 +943,11 @@ static void sd_issue_command_int(struct emmc_block_dev *dev, uint32_t cmd_reg, u
                 if(is_write)
 				{
 					uint32_t data = read_word((uint8_t *)cur_buf_addr, 0);
-                    mmio_write(EMMC_BASE + EMMC_DATA, data);
+                    mmio_write(emmc_base + EMMC_DATA, data);
 				}
                 else
 				{
-					uint32_t data = mmio_read(EMMC_BASE + EMMC_DATA);
+					uint32_t data = mmio_read(emmc_base + EMMC_DATA);
 					write_word(data, (uint8_t *)cur_buf_addr, 0);
 				}
                 cur_byte_no += 4;
@@ -960,13 +967,13 @@ static void sd_issue_command_int(struct emmc_block_dev *dev, uint32_t cmd_reg, u
        (cmd_reg & SD_CMD_ISDATA)) && (is_sdma == 0))
     {
         // First check command inhibit (DAT) is not already 0
-        if((mmio_read(EMMC_BASE + EMMC_STATUS) & 0x2) == 0)
-            mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0xffff0002);
+        if((mmio_read(emmc_base + EMMC_STATUS) & 0x2) == 0)
+            mmio_write(emmc_base + EMMC_INTERRUPT, 0xffff0002);
         else
         {
-            TIMEOUT_WAIT(mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x8002, timeout);
-            irpts = mmio_read(EMMC_BASE + EMMC_INTERRUPT);
-            mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0xffff0002);
+            TIMEOUT_WAIT(mmio_read(emmc_base + EMMC_INTERRUPT) & 0x8002, timeout);
+            irpts = mmio_read(emmc_base + EMMC_INTERRUPT);
+            mmio_write(emmc_base + EMMC_INTERRUPT, 0xffff0002);
 
             // Handle the case where both data timeout and transfer complete
             //  are set - transfer complete overrides data timeout: HCSS 2.2.17
@@ -979,7 +986,7 @@ static void sd_issue_command_int(struct emmc_block_dev *dev, uint32_t cmd_reg, u
                 dev->last_interrupt = irpts;
                 return;
             }
-            mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0xffff0002);
+            mmio_write(emmc_base + EMMC_INTERRUPT, 0xffff0002);
         }
     }
     else if (is_sdma)
@@ -988,13 +995,13 @@ static void sd_issue_command_int(struct emmc_block_dev *dev, uint32_t cmd_reg, u
         //  DMA int or an error
 
         // First check command inhibit (DAT) is not already 0
-        if((mmio_read(EMMC_BASE + EMMC_STATUS) & 0x2) == 0)
-            mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0xffff000a);
+        if((mmio_read(emmc_base + EMMC_STATUS) & 0x2) == 0)
+            mmio_write(emmc_base + EMMC_INTERRUPT, 0xffff000a);
         else
         {
-            TIMEOUT_WAIT(mmio_read(EMMC_BASE + EMMC_INTERRUPT) & 0x800a, timeout);
-            irpts = mmio_read(EMMC_BASE + EMMC_INTERRUPT);
-            mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0xffff000a);
+            TIMEOUT_WAIT(mmio_read(emmc_base + EMMC_INTERRUPT) & 0x800a, timeout);
+            irpts = mmio_read(emmc_base + EMMC_INTERRUPT);
+            mmio_write(emmc_base + EMMC_INTERRUPT, 0xffff000a);
 
             // Detect errors
             if((irpts & 0x8000) && ((irpts & 0x2) != 0x2))
@@ -1039,17 +1046,17 @@ static void sd_issue_command_int(struct emmc_block_dev *dev, uint32_t cmd_reg, u
                     printf("SD: unknown SDMA transfer error\n");
 
                 printf("SD: INTERRUPT: %08x, STATUS %08x\n", irpts,
-                       mmio_read(EMMC_BASE + EMMC_STATUS));
+                       mmio_read(emmc_base + EMMC_STATUS));
 #endif
 
-                if((irpts == 0) && ((mmio_read(EMMC_BASE + EMMC_STATUS) & 0x3) == 0x2))
+                if((irpts == 0) && ((mmio_read(emmc_base + EMMC_STATUS) & 0x3) == 0x2))
                 {
                     // The data transfer is ongoing, we should attempt to stop
                     //  it
 #ifdef EMMC_DEBUG
                     printf("SD: aborting transfer\n");
 #endif
-                    mmio_write(EMMC_BASE + EMMC_CMDTM, sd_commands[STOP_TRANSMISSION]);
+                    mmio_write(emmc_base + EMMC_CMDTM, sd_commands[STOP_TRANSMISSION]);
 
 #ifdef EMMC_DEBUG
                     // pause to let us read the screen
@@ -1072,7 +1079,7 @@ static void sd_handle_card_interrupt(struct emmc_block_dev *dev)
     // Handle a card interrupt
 
 #ifdef EMMC_DEBUG
-    uint32_t status = mmio_read(EMMC_BASE + EMMC_STATUS);
+    uint32_t status = mmio_read(emmc_base + EMMC_STATUS);
 
     printf("SD: card interrupt\n");
     printf("SD: controller status: %08x\n", status);
@@ -1106,7 +1113,7 @@ static void sd_handle_card_interrupt(struct emmc_block_dev *dev)
 
 static void sd_handle_interrupts(struct emmc_block_dev *dev)
 {
-    uint32_t irpts = mmio_read(EMMC_BASE + EMMC_INTERRUPT);
+    uint32_t irpts = mmio_read(emmc_base + EMMC_INTERRUPT);
     uint32_t reset_mask = 0;
 
     if(irpts & SD_COMMAND_COMPLETE)
@@ -1193,7 +1200,7 @@ static void sd_handle_interrupts(struct emmc_block_dev *dev)
         reset_mask |= 0xffff0000;
     }
 
-    mmio_write(EMMC_BASE + EMMC_INTERRUPT, reset_mask);
+    mmio_write(emmc_base + EMMC_INTERRUPT, reset_mask);
 }
 
 static void sd_issue_command(struct emmc_block_dev *dev, uint32_t command, uint32_t argument, useconds_t timeout)
@@ -1307,7 +1314,7 @@ int sd_card_init(struct block_device **dev)
 #endif
 
 	// Read the controller version
-	uint32_t ver = mmio_read(EMMC_BASE + EMMC_SLOTISR_VER);
+	uint32_t ver = mmio_read(emmc_base + EMMC_SLOTISR_VER);
 	uint32_t vendor = ver >> 24;
 	uint32_t sdversion = (ver >> 16) & 0xff;
 	uint32_t slot_status = ver & 0xff;
@@ -1328,28 +1335,28 @@ int sd_card_init(struct block_device **dev)
 #ifdef EMMC_DEBUG
 	printf("EMMC: resetting controller\n");
 #endif
-	uint32_t control1 = mmio_read(EMMC_BASE + EMMC_CONTROL1);
+	uint32_t control1 = mmio_read(emmc_base + EMMC_CONTROL1);
 	control1 |= (1 << 24);
 	// Disable clock
 	control1 &= ~(1 << 2);
 	control1 &= ~(1 << 0);
-	mmio_write(EMMC_BASE + EMMC_CONTROL1, control1);
-	TIMEOUT_WAIT((mmio_read(EMMC_BASE + EMMC_CONTROL1) & (0x7 << 24)) == 0, 1000000);
-	if((mmio_read(EMMC_BASE + EMMC_CONTROL1) & (0x7 << 24)) != 0)
+	mmio_write(emmc_base + EMMC_CONTROL1, control1);
+	TIMEOUT_WAIT((mmio_read(emmc_base + EMMC_CONTROL1) & (0x7 << 24)) == 0, 1000000);
+	if((mmio_read(emmc_base + EMMC_CONTROL1) & (0x7 << 24)) != 0)
 	{
 		printf("EMMC: controller did not reset properly\n");
 		return -1;
 	}
 #ifdef EMMC_DEBUG
 	printf("EMMC: control0: %08x, control1: %08x, control2: %08x\n",
-			mmio_read(EMMC_BASE + EMMC_CONTROL0),
-			mmio_read(EMMC_BASE + EMMC_CONTROL1),
-            mmio_read(EMMC_BASE + EMMC_CONTROL2));
+			mmio_read(emmc_base + EMMC_CONTROL0),
+			mmio_read(emmc_base + EMMC_CONTROL1),
+            mmio_read(emmc_base + EMMC_CONTROL2));
 #endif
 
 	// Read the capabilities registers
-	capabilities_0 = mmio_read(EMMC_BASE + EMMC_CAPABILITIES_0);
-	capabilities_1 = mmio_read(EMMC_BASE + EMMC_CAPABILITIES_1);
+	capabilities_0 = mmio_read(emmc_base + EMMC_CAPABILITIES_0);
+	capabilities_1 = mmio_read(emmc_base + EMMC_CAPABILITIES_1);
 #ifdef EMMC_DEBUG
 	printf("EMMC: capabilities: %08x%08x\n", capabilities_1, capabilities_0);
 #endif
@@ -1358,8 +1365,8 @@ int sd_card_init(struct block_device **dev)
 #ifdef EMMC_DEBUG
 	printf("EMMC: checking for an inserted card\n");
 #endif
-    TIMEOUT_WAIT(mmio_read(EMMC_BASE + EMMC_STATUS) & (1 << 16), 500000);
-	uint32_t status_reg = mmio_read(EMMC_BASE + EMMC_STATUS);
+    TIMEOUT_WAIT(mmio_read(emmc_base + EMMC_STATUS) & (1 << 16), 500000);
+	uint32_t status_reg = mmio_read(emmc_base + EMMC_STATUS);
 	if((status_reg & (1 << 16)) == 0)
 	{
 		printf("EMMC: no card inserted\n");
@@ -1370,7 +1377,7 @@ int sd_card_init(struct block_device **dev)
 #endif
 
 	// Clear control2
-	mmio_write(EMMC_BASE + EMMC_CONTROL2, 0);
+	mmio_write(emmc_base + EMMC_CONTROL2, 0);
 
 	// Get the base clock rate
 	uint32_t base_clock = sd_get_base_clock_hz();
@@ -1384,7 +1391,7 @@ int sd_card_init(struct block_device **dev)
 #ifdef EMMC_DEBUG
 	printf("EMMC: setting clock rate\n");
 #endif
-	control1 = mmio_read(EMMC_BASE + EMMC_CONTROL1);
+	control1 = mmio_read(emmc_base + EMMC_CONTROL1);
 	control1 |= 1;			// enable clock
 
 	// Set to identification frequency (400 kHz)
@@ -1397,17 +1404,17 @@ int sd_card_init(struct block_device **dev)
 	control1 |= f_id;
 
 	control1 |= (7 << 16);		// data timeout = TMCLK * 2^10
-	mmio_write(EMMC_BASE + EMMC_CONTROL1, control1);
-	TIMEOUT_WAIT(mmio_read(EMMC_BASE + EMMC_CONTROL1) & 0x2, 0x1000000);
-	if((mmio_read(EMMC_BASE + EMMC_CONTROL1) & 0x2) == 0)
+	mmio_write(emmc_base + EMMC_CONTROL1, control1);
+	TIMEOUT_WAIT(mmio_read(emmc_base + EMMC_CONTROL1) & 0x2, 0x1000000);
+	if((mmio_read(emmc_base + EMMC_CONTROL1) & 0x2) == 0)
 	{
 		printf("EMMC: controller's clock did not stabilise within 1 second\n");
 		return -1;
 	}
 #ifdef EMMC_DEBUG
 	printf("EMMC: control0: %08x, control1: %08x\n",
-			mmio_read(EMMC_BASE + EMMC_CONTROL0),
-			mmio_read(EMMC_BASE + EMMC_CONTROL1));
+			mmio_read(emmc_base + EMMC_CONTROL0),
+			mmio_read(emmc_base + EMMC_CONTROL1));
 #endif
 
 	// Enable the SD clock
@@ -1415,24 +1422,24 @@ int sd_card_init(struct block_device **dev)
 	printf("EMMC: enabling SD clock\n");
 #endif
 	usleep(2000);
-	control1 = mmio_read(EMMC_BASE + EMMC_CONTROL1);
+	control1 = mmio_read(emmc_base + EMMC_CONTROL1);
 	control1 |= 4;
-	mmio_write(EMMC_BASE + EMMC_CONTROL1, control1);
+	mmio_write(emmc_base + EMMC_CONTROL1, control1);
 	usleep(2000);
 #ifdef EMMC_DEBUG
 	printf("EMMC: SD clock enabled\n");
 #endif
 
 	// Mask off sending interrupts to the ARM
-	mmio_write(EMMC_BASE + EMMC_IRPT_EN, 0);
+	mmio_write(emmc_base + EMMC_IRPT_EN, 0);
 	// Reset interrupts
-	mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0xffffffff);
+	mmio_write(emmc_base + EMMC_INTERRUPT, 0xffffffff);
 	// Have all interrupts sent to the INTERRUPT register
 	uint32_t irpt_mask = 0xffffffff & (~SD_CARD_INTERRUPT);
 #ifdef SD_CARD_INTERRUPTS
     irpt_mask |= SD_CARD_INTERRUPT;
 #endif
-	mmio_write(EMMC_BASE + EMMC_IRPT_MASK, irpt_mask);
+	mmio_write(emmc_base + EMMC_IRPT_MASK, irpt_mask);
 
 #ifdef EMMC_DEBUG
 	printf("EMMC: interrupts disabled\n");
@@ -1487,7 +1494,7 @@ int sd_card_init(struct block_device **dev)
     {
         if(sd_reset_cmd() == -1)
             return -1;
-        mmio_write(EMMC_BASE + EMMC_INTERRUPT, SD_ERR_MASK_CMD_TIMEOUT);
+        mmio_write(emmc_base + EMMC_INTERRUPT, SD_ERR_MASK_CMD_TIMEOUT);
         v2_later = 0;
     }
     else if(FAIL(ret))
@@ -1522,7 +1529,7 @@ int sd_card_init(struct block_device **dev)
         {
             if(sd_reset_cmd() == -1)
                 return -1;
-            mmio_write(EMMC_BASE + EMMC_INTERRUPT, SD_ERR_MASK_CMD_TIMEOUT);
+            mmio_write(emmc_base + EMMC_INTERRUPT, SD_ERR_MASK_CMD_TIMEOUT);
         }
         else
         {
@@ -1633,12 +1640,12 @@ int sd_card_init(struct block_device **dev)
 	    }
 
 	    // Disable SD clock
-	    control1 = mmio_read(EMMC_BASE + EMMC_CONTROL1);
+	    control1 = mmio_read(emmc_base + EMMC_CONTROL1);
 	    control1 &= ~(1 << 2);
-	    mmio_write(EMMC_BASE + EMMC_CONTROL1, control1);
+	    mmio_write(emmc_base + EMMC_CONTROL1, control1);
 
 	    // Check DAT[3:0]
-	    status_reg = mmio_read(EMMC_BASE + EMMC_STATUS);
+	    status_reg = mmio_read(emmc_base + EMMC_STATUS);
 	    uint32_t dat30 = (status_reg >> 20) & 0xf;
 	    if(dat30 != 0)
 	    {
@@ -1651,15 +1658,15 @@ int sd_card_init(struct block_device **dev)
 	    }
 
 	    // Set 1.8V signal enable to 1
-	    uint32_t control0 = mmio_read(EMMC_BASE + EMMC_CONTROL0);
+	    uint32_t control0 = mmio_read(emmc_base + EMMC_CONTROL0);
 	    control0 |= (1 << 8);
-	    mmio_write(EMMC_BASE + EMMC_CONTROL0, control0);
+	    mmio_write(emmc_base + EMMC_CONTROL0, control0);
 
 	    // Wait 5 ms
 	    usleep(5000);
 
 	    // Check the 1.8V signal enable is set
-	    control0 = mmio_read(EMMC_BASE + EMMC_CONTROL0);
+	    control0 = mmio_read(emmc_base + EMMC_CONTROL0);
 	    if(((control0 >> 8) & 0x1) == 0)
 	    {
 #ifdef EMMC_DEBUG
@@ -1671,15 +1678,15 @@ int sd_card_init(struct block_device **dev)
 	    }
 
 	    // Re-enable the SD clock
-	    control1 = mmio_read(EMMC_BASE + EMMC_CONTROL1);
+	    control1 = mmio_read(emmc_base + EMMC_CONTROL1);
 	    control1 |= (1 << 2);
-	    mmio_write(EMMC_BASE + EMMC_CONTROL1, control1);
+	    mmio_write(emmc_base + EMMC_CONTROL1, control1);
 
 	    // Wait 1 ms
 	    usleep(10000);
 
 	    // Check DAT[3:0]
-	    status_reg = mmio_read(EMMC_BASE + EMMC_STATUS);
+	    status_reg = mmio_read(emmc_base + EMMC_STATUS);
 	    dat30 = (status_reg >> 20) & 0xf;
 	    if(dat30 != 0xf)
 	    {
@@ -1808,10 +1815,10 @@ int sd_card_init(struct block_device **dev)
 	    }
 	}
 	ret->block_size = 512;
-	uint32_t controller_block_size = mmio_read(EMMC_BASE + EMMC_BLKSIZECNT);
+	uint32_t controller_block_size = mmio_read(emmc_base + EMMC_BLKSIZECNT);
 	controller_block_size &= (~0xfff);
 	controller_block_size |= 0x200;
-	mmio_write(EMMC_BASE + EMMC_BLKSIZECNT, controller_block_size);
+	mmio_write(emmc_base + EMMC_BLKSIZECNT, controller_block_size);
 
 	// Get the cards SCR register
 	ret->scr = (struct sd_scr *)malloc(sizeof(struct sd_scr));
@@ -1871,9 +1878,9 @@ int sd_card_init(struct block_device **dev)
 #endif
 
         // Disable card interrupt in host
-        uint32_t old_irpt_mask = mmio_read(EMMC_BASE + EMMC_IRPT_MASK);
+        uint32_t old_irpt_mask = mmio_read(emmc_base + EMMC_IRPT_MASK);
         uint32_t new_iprt_mask = old_irpt_mask & ~(1 << 8);
-        mmio_write(EMMC_BASE + EMMC_IRPT_MASK, new_iprt_mask);
+        mmio_write(emmc_base + EMMC_IRPT_MASK, new_iprt_mask);
 
         // Send ACMD6 to change the card's bit mode
         sd_issue_command(ret, SET_BUS_WIDTH, 0x2, 500000);
@@ -1882,12 +1889,12 @@ int sd_card_init(struct block_device **dev)
         else
         {
             // Change bit mode for Host
-            uint32_t control0 = mmio_read(EMMC_BASE + EMMC_CONTROL0);
+            uint32_t control0 = mmio_read(emmc_base + EMMC_CONTROL0);
             control0 |= 0x2;
-            mmio_write(EMMC_BASE + EMMC_CONTROL0, control0);
+            mmio_write(emmc_base + EMMC_CONTROL0, control0);
 
             // Re-enable card interrupt in host
-            mmio_write(EMMC_BASE + EMMC_IRPT_MASK, old_irpt_mask);
+            mmio_write(emmc_base + EMMC_IRPT_MASK, old_irpt_mask);
 
 #ifdef EMMC_DEBUG
                 printf("SD: switch to 4-bit complete\n");
@@ -1902,7 +1909,7 @@ int sd_card_init(struct block_device **dev)
 #endif
 
 	// Reset interrupt register
-	mmio_write(EMMC_BASE + EMMC_INTERRUPT, 0xffffffff);
+	mmio_write(emmc_base + EMMC_INTERRUPT, 0xffffffff);
 
 	*dev = (struct block_device *)ret;
 

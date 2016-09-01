@@ -4,7 +4,7 @@ MAKEFILE_IN = $(MAKEFILE).in
 
 all: kernel.img
 
-.PHONY: clean kernel.img libfs.a qemu qemu-gdb dump kernel-qemu.elf
+.PHONY: clean kernel.img libfs.a qemu qemu-gdb dump kernel-qemu.elf kernel.img-atag
 
 $(MAKEFILE): $(MAKEFILE_IN) config.h Makefile
 	$(ARMCC) -P -traditional-cpp -std=gnu99 -E -o $(MAKEFILE) -x c $(MAKEFILE_IN)
@@ -14,6 +14,9 @@ clean: $(MAKEFILE)
 
 kernel.img: $(MAKEFILE)
 	$(MAKE) -f $(MAKEFILE) kernel.img
+
+kernel.img-atag: $(MAKEFILE)
+	$(MAKE) -f $(MAKEFILE) kernel.img-atag
 
 libfs.a: $(MAKEFILE)
 	$(MAKE) -f $(MAKEFILE) libfs.a

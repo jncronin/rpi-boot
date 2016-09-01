@@ -124,11 +124,11 @@ libfs.a: $(LIBFS_OBJS)
 kernel.elf: $(OBJS) linker.ld $(LIBFDT)
 	$(ARMCC) -nostdlib $(OBJS) -Wl,-T,linker.ld -o $@ -Llibdtc/libfdt -lfdt -lgcc
 
-kernel.img-preheader: kernel.elf
-	$(ARMOBJCOPY) kernel.elf -O binary kernel.img-preheader
+kernel.img: kernel.elf
+	$(ARMOBJCOPY) kernel.elf -O binary kernel.img
 
-kernel.img: kernel.img-preheader mkknlimg
-	./mkknlimg kernel.img-preheader kernel.img
+kernel.img-atag: kernel.img mkknlimg
+	./mkknlimg kernel.img kernel.img-atag
 
 kernel-qemu.elf: $(OBJS) linker-qemu.ld $(LIBFDT)
 	$(ARMCC) -nostdlib $(OBJS) -Wl,-T,linker-qemu.ld -o $@ -Llibdtc/libfdt -lfdt -lgcc
@@ -137,7 +137,7 @@ kernel-qemu.img: kernel-qemu.elf
 	$(ARMOBJCOPY) kernel-qemu.elf -O binary kernel-qemu.img
 
 clean:
-	$(RM) -f $(OBJS) $(DISASM_DUMP) kernel.elf kernel.img kernel-qemu.img kernel-qemu.elf $(MAKEFILE) kernel.img-preheader
+	$(RM) -f $(OBJS) $(DISASM_DUMP) kernel.elf kernel.img kernel-qemu.img kernel-qemu.elf $(MAKEFILE) kernel.img-preheader kernel.img-atag libfs.a assert.o
 
 %.o: %.c $(MAKEFILE) $(CONFIG_H)
 	$(ARMCC) $(CFLAGS) -include $(CONFIG_H) -c $< -o $@

@@ -26,13 +26,20 @@
 #define MBOX_FULL		0x80000000
 #define	MBOX_EMPTY		0x40000000
 
+static uint32_t mbox_base = MBOX_BASE;
+
+void mbox_set_base(uint32_t base)
+{
+	mbox_base = base;
+}
+
 uint32_t mbox_read(uint8_t channel)
 {
 	while(1)
 	{
-		while(mmio_read(MBOX_BASE + MBOX_STATUS) & MBOX_EMPTY);
+		while(mmio_read(mbox_base + MBOX_STATUS) & MBOX_EMPTY);
 
-		uint32_t data = mmio_read(MBOX_BASE + MBOX_READ);
+		uint32_t data = mmio_read(mbox_base + MBOX_READ);
 		uint8_t read_channel = (uint8_t)(data & 0xf);
 		if(read_channel == channel)
 			return (data & 0xfffffff0);
@@ -41,7 +48,7 @@ uint32_t mbox_read(uint8_t channel)
 
 void mbox_write(uint8_t channel, uint32_t data)
 {
-	while(mmio_read(MBOX_BASE + MBOX_STATUS) & MBOX_FULL);
-	mmio_write(MBOX_BASE + MBOX_WRITE, (data & 0xfffffff0) | (uint32_t)(channel & 0xf));
+	while(mmio_read(mbox_base + MBOX_STATUS) & MBOX_FULL);
+	mmio_write(mbox_base + MBOX_WRITE, (data & 0xfffffff0) | (uint32_t)(channel & 0xf));
 }
 

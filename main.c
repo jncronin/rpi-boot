@@ -41,7 +41,7 @@
 
 uint32_t _atags;
 uint32_t _arm_m_type;
-uint32_t base_adjust = BASE_ADJUST_V1;
+uint32_t base_adjust = 0;
 
 char rpi_boot_name[] = "rpi_boot";
 
@@ -83,7 +83,7 @@ int conf_source = 0;
 void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 {
 	// Hack for newer firmware - assume if atags not specified then they are at 0x100
-	// MAY BREAK IN FUTURE
+	// We also check the zero address in case this is true - see later
 	if(atags == 0x0)
 		atags = 0x100;
 	
@@ -120,6 +120,18 @@ void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
 	{
 		case 1:
 		case 2:
+			// If using ATAGs, need to set up base adjust
+			// manually
+			if(arm_m_type == 0xc42)
+				base_adjust = BASE_ADJUST_V1;
+			else if(arm_m_type == 0xc43)
+				base_adjust = BASE_ADJUST_V2;
+			uart_init();
+#ifdef DEBUG
+			printf("ATAGS: detected\n");
+#endif
+
+			// Fall through
 		case 3:
 		case 4:
 			parse_atag_or_dtb(mem_cb);

@@ -20,6 +20,7 @@
  */
 
 #include <stdint.h>
+#include <stdio.h>
 #include "mmio.h"
 #include "uart.h"
 #include "timer.h"
@@ -27,59 +28,79 @@
 extern uint32_t base_adjust;
 
 #define GPIO_BASE 			0x20200000
-#define GPPUD 				(GPIO_BASE + 0x94)
-#define GPPUDCLK0 			(GPIO_BASE + 0x98)
+#define GPPUD 				0x94
+#define GPPUDCLK0 			0x98
 #define UART0_BASE			0x20201000
-#define UART0_DR			(UART0_BASE + 0x00)
-#define UART0_RSRECR			(UART0_BASE + 0x04)
-#define UART0_FR			(UART0_BASE + 0x18)
-#define UART0_ILPR			(UART0_BASE + 0x20)
-#define UART0_IBRD			(UART0_BASE + 0x24)
-#define UART0_FBRD			(UART0_BASE + 0x28)
-#define UART0_LCRH			(UART0_BASE + 0x2C)
-#define UART0_CR			(UART0_BASE + 0x30)
-#define UART0_IFLS			(UART0_BASE + 0x34)
-#define UART0_IMSC			(UART0_BASE + 0x38)
-#define UART0_RIS			(UART0_BASE + 0x3C)
-#define UART0_MIS			(UART0_BASE + 0x40)
-#define UART0_ICR			(UART0_BASE + 0x44)
-#define UART0_DMACR			(UART0_BASE + 0x48)
-#define UART0_ITCR			(UART0_BASE + 0x80)
-#define UART0_ITIP			(UART0_BASE + 0x84)
-#define UART0_ITOP			(UART0_BASE + 0x88)
-#define UART0_TDR			(UART0_BASE + 0x8C)
+#define UART0_DR			0x00
+#define UART0_RSRECR			0x04
+#define UART0_FR			0x18
+#define UART0_ILPR			0x20
+#define UART0_IBRD			0x24
+#define UART0_FBRD			0x28
+#define UART0_LCRH			0x2C
+#define UART0_CR			0x30
+#define UART0_IFLS			0x34
+#define UART0_IMSC			0x38
+#define UART0_RIS			0x3C
+#define UART0_MIS			0x40
+#define UART0_ICR			0x44
+#define UART0_DMACR			0x48
+#define UART0_ITCR			0x80
+#define UART0_ITIP			0x84
+#define UART0_ITOP			0x88
+#define UART0_TDR			0x8C
+
+static uint32_t uart_base = UART0_BASE;
+static uint32_t gpio_base = GPIO_BASE;
+
+void uart_set_base(uint32_t base)
+{
+	uart_base = base;
+}
+
+void gpio_set_base(uint32_t base)
+{
+	gpio_base = base;
+}
 
 void uart_init()
 {
-	mmio_write(UART0_CR, 0x0);
+	// disable UART
+	mmio_write(uart_base + UART0_CR, 0x0);
 
-	mmio_write(GPPUD, 0x0);
+	// the following disables pullup/down for GPIO pins 14 and 15
+	mmio_write(gpio_base + GPPUD, 0x0);
 	usleep(150000);
 
-	mmio_write(GPPUDCLK0, (1 << 14) | (1 << 15));
+	mmio_write(gpio_base + GPPUDCLK0, (1 << 14) | (1 << 15));
 	usleep(150000);
 
-	mmio_write(GPPUDCLK0, 0x0);
+	mmio_write(gpio_base + GPPUDCLK0, 0x0);
 
-	mmio_write(UART0_ICR, 0x7ff);
+	// clear interrupts
+	mmio_write(uart_base + UART0_ICR, 0x7ff);
 
-	mmio_write(UART0_IBRD, 1);
-	mmio_write(UART0_FBRD, 40);
+	// set baud rate - commented out therefore use default
+	//mmio_write(uart_base + UART0_IBRD, 1);
+	//mmio_write(uart_base + UART0_FBRD, 40);
 
-	mmio_write(UART0_LCRH, (1 << 4) | (1 << 5) | (1 << 6));
+	// 8 bit, no parity, 1 stop bit - commented out therefore use default
+	//mmio_write(uart_base + UART0_LCRH, (1 << 4) | (1 << 5) | (1 << 6));
 
-	mmio_write(UART0_IMSC, (1 << 1) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) |
+	// interrupt mask
+	mmio_write(uart_base + UART0_IMSC, (1 << 1) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) |
 				(1 << 8) | (1 << 9) | (1 << 10));
 
-	mmio_write(UART0_CR, (1 << 0) | (1 << 8) | (1 << 9));
+	// enable device, transmit and receive
+	mmio_write(uart_base + UART0_CR, (1 << 0) | (1 << 8) | (1 << 9));
 }
 
 int uart_putc(int byte)
 {
-	while(mmio_read(UART0_FR) & (1 << 5))
+	while(mmio_read(uart_base + UART0_FR) & (1 << 5))
         usleep(2000);
 
-	mmio_write(UART0_DR, (uint8_t)(byte & 0xff));
+	mmio_write(uart_base + UART0_DR, (uint8_t)(byte & 0xff));
 
 	if(byte == '\n')
 		uart_putc('\r');
@@ -89,16 +110,16 @@ int uart_putc(int byte)
 
 int uart_getc()
 {
-    while(mmio_read(UART0_FR) & (1 << 4))
+    while(mmio_read(uart_base + UART0_FR) & (1 << 4))
         usleep(2000);
-    return mmio_read(UART0_DR) & 0xff;
+    return mmio_read(uart_base + UART0_DR) & 0xff;
 }
 
 int uart_getc_timeout(useconds_t timeout)
 {
-    TIMEOUT_WAIT((mmio_read(UART0_FR) & (1 << 4)) == 0, timeout);
-    if((mmio_read(UART0_FR) & (1 << 4)) == 0)
-        return mmio_read(UART0_DR) & 0xff;
+    TIMEOUT_WAIT((mmio_read(uart_base + UART0_FR) & (1 << 4)) == 0, timeout);
+    if((mmio_read(uart_base + UART0_FR) & (1 << 4)) == 0)
+        return mmio_read(uart_base + UART0_DR) & 0xff;
     else
         return -1;
 }
