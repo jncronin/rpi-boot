@@ -481,16 +481,18 @@ struct dirent *fat_read_dir(struct fat_fs *fs, struct dirent *d)
 
 		for(uint32_t ptr = 0; ptr < cluster_size; ptr += 32)
 		{
-			// Does the entry exist (if the first byte is zero of 0xe5 it doesn't)
+			// Does the entry exist (if the first byte is zero or 0xe5 it doesn't)
 			if((buf[ptr] == 0) || (buf[ptr] == 0xe5))
 				continue;
 
 			// Is it the directories '.' or '..'?
-			if(buf[ptr] == '.')
+			if(buf[ptr] == '.' && buf[ptr + 1] == ' ')
+				continue;
+			if(buf[ptr] == '.' && buf[ptr + 1] == '.' && buf[ptr + 2] == ' ')
 				continue;
 
-			// Is it a long filename entry (if so ignore)
-			if(buf[ptr + 11] == 0x0f)
+			// Is it the volume label or a long filename entry (if so ignore)
+			if(buf[ptr + 11] & 0x08)
 				continue;
 
 			// Else read it
