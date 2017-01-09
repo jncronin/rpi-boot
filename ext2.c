@@ -502,6 +502,11 @@ struct dirent *ext2_read_dir(struct ext2_fs *fs, struct dirent *d)
 			uint16_t de_name_length = *(uint16_t *)&block[ptr + 6];
 			uint8_t de_type_flags = *(uint8_t *)&block[ptr + 7];
 
+			if (!de_entry_size) {
+				/* Invalid FS? */
+				break;
+			}
+
 			// Does the entry exist?
 			if(!de_inode_idx)
 			{
