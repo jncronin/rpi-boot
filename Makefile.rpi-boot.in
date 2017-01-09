@@ -1,10 +1,14 @@
 #include "config.h"
 
-ARMCC ?= arm-none-eabi-gcc
-ARMLD ?= arm-none-eabi-ld
-ARMOBJCOPY ?= arm-none-eabi-objcopy
-ARMOBJDUMP ?= arm-none-eabi-objdump
-ARMAR ?= arm-none-eabi-ar
+/* Allow cross as well as native compilation */
+CROSS_COMPILE  ?=
+HOSTCC          = $(CC)
+ARMCC          ?= $(CROSS_COMPILE)gcc
+ARMLD          ?= $(CROSS_COMPILE)ld
+ARMOBJCOPY     ?= $(CROSS_COMPILE)objcopy
+ARMOBJDUMP     ?= $(CROSS_COMPILE)objdump
+ARMAR          ?= $(CROSS_COMPILE)ar
+
 QEMU ?= qemu-system-arm
 
 QEMUDTB ?= bcm2709-rpi-2-b.dtb

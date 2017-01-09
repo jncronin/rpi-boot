@@ -1,6 +1,9 @@
-ARMCC ?= arm-none-eabi-gcc
 MAKEFILE = Makefile.rpi-boot
 MAKEFILE_IN = $(MAKEFILE).in
+
+# Allow cross as well as native compilation
+CROSS_COMPILE  ?=
+ARMCC           = $(CROSS_COMPILE)gcc
 
 all: kernel.img
 
