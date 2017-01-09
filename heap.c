@@ -22,7 +22,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#define MAX_BRK 0xf0000
+#define MAX_BRK (((uintptr_t)&_start - 0x8000) + 0xf0000)
 
 #ifdef ENABLE_USB
 #include "dwc_usb.h"
@@ -31,7 +31,7 @@
 #define MAX_BUF 0x100000
 #endif
 
-extern char _end;
+extern char _start, _end;
 
 uintptr_t cur_brk = 0;
 uintptr_t cur_buf = MAX_BRK;

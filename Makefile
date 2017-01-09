@@ -7,7 +7,7 @@ ARMCC           = $(CROSS_COMPILE)gcc
 
 all: kernel.img
 
-.PHONY: clean kernel.img libfs.a qemu qemu-gdb dump kernel-qemu.elf kernel.img-atag
+.PHONY: clean kernel.img libfs.a qemu qemu-gdb dump kernel-qemu.elf kernel.img-atag qemufw.elf
 
 $(MAKEFILE): $(MAKEFILE_IN) config.h Makefile
 	$(ARMCC) -P -traditional-cpp -std=gnu99 -E -o $(MAKEFILE) -x c $(MAKEFILE_IN)
@@ -26,6 +26,9 @@ libfs.a: $(MAKEFILE)
 
 kernel-qemu.elf: $(MAKEFILE)
 	$(MAKE) -f $(MAKEFILE) kernel-qemu.elf
+
+qemufw.elf: $(MAKEFILE)
+	$(MAKE) -f $(MAKEFILE) qemufw.elf
 
 qemu: $(MAKEFILE)
 	$(MAKE) -f $(MAKEFILE) qemu

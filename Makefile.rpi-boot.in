@@ -126,6 +126,8 @@ OBJS += config_parse.o
 
 LIBFS_OBJS = libfs.o $(SD_OBJS) block.o $(MBR_OBJS) $(FAT_OBJS) vfs.o $(EXT2_OBJS) timer.o mmio.o $(RASPBOOTIN_OBJS) $(RAMDISK_OBJS) $(NOFS_OBJS) $(CACHE_OBJS) crc32.o $(ASSERT_OBJS)
 
+QEMUFW_OBJS = qemufw.o
+
 .PHONY: clean
 .PHONY: qemu
 .PHONY: qemu-gdb
@@ -139,6 +141,9 @@ dump: $(DISASM_DUMP)
 
 libfs.a: $(LIBFS_OBJS)
 	$(ARMAR) rcs $@ $(LIBFS_OBJS)
+
+qemufw.elf: $(OBJS) qemufw.ld $(LIBFDT) $(QEMUFW_OBJS)
+	$(ARMCC) -nostdlib $(OBJS) $(QEMUFW_OBJS) -Wl,-T,qemufw.ld -o $@ -Llibdtc/libfdt -lfdt -lgcc
 
 kernel.elf: $(OBJS) linker.ld $(LIBFDT)
 	$(ARMCC) -nostdlib $(OBJS) -Wl,-T,linker.ld -o $@ -Llibdtc/libfdt -lfdt -lgcc
@@ -156,7 +161,7 @@ kernel-qemu.img: kernel-qemu.elf
 	$(ARMOBJCOPY) kernel-qemu.elf -O binary kernel-qemu.img
 
 clean:
-	$(RM) -f $(OBJS) $(DISASM_DUMP) kernel.elf kernel.img kernel-qemu.img kernel-qemu.elf $(MAKEFILE) kernel.img-preheader kernel.img-atag libfs.a assert.o
+	$(RM) -f $(OBJS) $(DISASM_DUMP) kernel.elf kernel.img kernel-qemu.img kernel-qemu.elf $(MAKEFILE) kernel.img-preheader kernel.img-atag libfs.a assert.o $(QEMUFW_OBJS)
 
 %.o: %.c $(MAKEFILE) $(CONFIG_H)
 	$(ARMCC) $(CFLAGS) -include $(CONFIG_H) -c $< -o $@
