@@ -41,7 +41,11 @@
 
 uintptr_t _atags;
 unsigned long _arm_m_type;
+#ifdef __aarch64__
+uintptr_t base_adjust = BASE_ADJUST_V2;
+#else
 uintptr_t base_adjust = 0;
+#endif
 
 char rpi_boot_name[] = "rpi_boot";
 

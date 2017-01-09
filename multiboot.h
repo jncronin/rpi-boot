@@ -29,7 +29,7 @@
 
 #include <stdint.h>
 
-#ifdef __ARMEL__
+#if defined(__ARMEL__) || defined(__aarch64__)
 #include <stddef.h>
 #include "timer.h"
 #include "output.h"
@@ -146,7 +146,7 @@ typedef struct multiboot_info
   uint32_t flags;
   uint32_t mem_lower;
   uint32_t mem_upper;
-#ifdef __ARMEL__
+#if defined(__ARMEL__) || defined(__aarch64__)
   char *boot_device;
   char *cmdline;
 #else
@@ -164,7 +164,7 @@ typedef struct multiboot_info
   uint32_t mmap_addr;
 
   uint32_t drives_length;
-#ifdef __ARMEL__
+#if defined(__ARMEL__) || defined(__aarch64__)
   char **drives_addr;
 #else
   uint32_t drives_addr;
@@ -174,7 +174,7 @@ typedef struct multiboot_info
   uint32_t config_table;
 
   /* Boot Loader Name */
-#ifdef __ARMEL__
+#if defined(__ARMEL__) || defined(__aarch64__)
   char *boot_loader_name;
 #else
   uint32_t boot_loader_name;
@@ -184,7 +184,7 @@ typedef struct multiboot_info
   uint32_t apm_table;
 
   /* Video */
-#ifdef __ARMEL__
+#if defined(__ARMEL__) || defined(__aarch64__)
   uint32_t fb_addr;
   uint32_t fb_size;
   uint32_t fb_pitch;

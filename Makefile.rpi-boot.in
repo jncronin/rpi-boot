@@ -33,9 +33,13 @@ ASSERT_OBJS = assert.o
 CFLAGS += -O3
 #endif
 
+#ifdef __aarch64__
+QEMUFLAGS += -m 1G -M raspi3 -kernel kernel-qemu.img -usb -nographic
+CFLAGS += -mgeneral-regs-only
+#else
 ASFLAGS += -Wa,-mcpu=arm1176jzf-s
-
 QEMUFLAGS += -cpu arm1176 -m 256 -M raspi2 -kernel kernel-qemu.img -usb -nographic -dtb $(QEMUDTB)
+#endif
 SDFLAGS = -sd sd.img
 
 #ifdef ENABLE_FRAMEBUFFER
@@ -107,7 +111,17 @@ $(FONT_OBJS): $(FONT_BIN) $(MAKEFILE) $(CONFIG_H)
 MBR_OBJS = mbr.o
 #endif
 
-OBJS = main.o boot.o libfs.o $(SERIAL_OBJS) stdio.o stream.o atag.o mbox.o $(FONT_OBJS) $(FB_OBJS) stdlib.o mmio.o heap.o malloc.o printf.o $(SD_OBJS) block.o $(MBR_OBJS) $(FAT_OBJS) vfs.o multiboot.o memchunk.o $(EXT2_OBJS) elf.o timer.o strtol.o strtoll.o $(ASSERT_OBJS) ctype.o $(USB_OBJS) output.o $(RASPBOOTIN_OBJS) $(RAMDISK_OBJS) $(NOFS_OBJS) $(CACHE_OBJS) $(LOGFILE_OBJS) crc32.o rpifdt.o strstr.o
+#ifdef __aarch64__
+OBJS  = boot64.o
+#else
+OBJS  = boot.o
+#endif
+OBJS += main.o libfs.o $(SERIAL_OBJS) stdio.o stream.o atag.o
+OBJS += mbox.o $(FONT_OBJS) $(FB_OBJS) stdlib.o mmio.o heap.o malloc.o
+OBJS += printf.o $(SD_OBJS) block.o $(MBR_OBJS) $(FAT_OBJS) vfs.o multiboot.o 
+OBJS += memchunk.o $(EXT2_OBJS) elf.o timer.o strtol.o strtoll.o $(ASSERT_OBJS)
+OBJS += ctype.o $(USB_OBJS) output.o $(RASPBOOTIN_OBJS) $(RAMDISK_OBJS)
+OBJS += $(NOFS_OBJS) $(CACHE_OBJS) $(LOGFILE_OBJS) crc32.o rpifdt.o strstr.o
 
 LIBFS_OBJS = libfs.o $(SD_OBJS) block.o $(MBR_OBJS) $(FAT_OBJS) vfs.o $(EXT2_OBJS) timer.o mmio.o $(RASPBOOTIN_OBJS) $(RAMDISK_OBJS) $(NOFS_OBJS) $(CACHE_OBJS) crc32.o $(ASSERT_OBJS)
 
