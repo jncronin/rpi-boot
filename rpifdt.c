@@ -26,7 +26,7 @@
 #include "util.h"
 
 extern const char *atag_cmd_line;
-extern uint32_t base_adjust;
+extern uintptr_t base_adjust;
 
 static uint32_t get_adjusted_address(const char *dtb, int node, uint32_t addr);
 

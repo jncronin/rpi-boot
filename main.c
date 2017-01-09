@@ -39,9 +39,9 @@
 
 #define UNUSED(x) (void)(x)
 
-uint32_t _atags;
-uint32_t _arm_m_type;
-uint32_t base_adjust = 0;
+uintptr_t _atags;
+unsigned long _arm_m_type;
+uintptr_t base_adjust = 0;
 
 char rpi_boot_name[] = "rpi_boot";
 
@@ -80,7 +80,8 @@ int cfg_parse(char *buf);
 
 int conf_source = 0;
 
-void kernel_main(uint32_t boot_dev, uint32_t arm_m_type, uint32_t atags)
+void kernel_main(unsigned long boot_dev, unsigned long arm_m_type,
+                 unsigned long atags)
 {
 	// Hack for newer firmware - assume if atags not specified then they are at 0x100
 	// We also check the zero address in case this is true - see later

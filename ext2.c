@@ -257,7 +257,7 @@ static FILE *ext2_fopen(struct fs *fs, struct dirent *path, const char *mode)
 
 	// We have to load the inode to get the length
 	struct ext2_inode *inode = ext2_read_inode(ext2,
-			(uint32_t)path->opaque);
+			(uintptr_t)path->opaque);
 	ret->len = (long)inode->size;	// no support for large files
 	free(inode);
 
@@ -278,7 +278,7 @@ static size_t ext2_fread(struct fs *fs, void *ptr, size_t byte_size, FILE *strea
 		return -1;
 
 	struct ext2_inode *inode = ext2_read_inode((struct ext2_fs *)fs,
-		(uint32_t)stream->opaque);
+		(uintptr_t)stream->opaque);
 
 	return fs_fread(ext2_get_next_bdev_block_num, fs, ptr, byte_size, stream, (void *)inode);
 }
@@ -465,7 +465,7 @@ struct dirent *ext2_read_dir(struct ext2_fs *fs, struct dirent *d)
 
 	uint32_t inode_idx = 2;	// root
 	if(d != (void*)0)
-		inode_idx = (uint32_t)d->opaque;
+		inode_idx = (uintptr_t)d->opaque;
 
 	struct dirent *ret = (void *)0;
 	struct dirent *prev = (void *)0;
@@ -558,7 +558,7 @@ struct dirent *ext2_read_dir(struct ext2_fs *fs, struct dirent *d)
 			de->fs = &fs->b;
 			de->next = (void *)0;
 
-			de->opaque = (void*)de_inode_idx;
+			de->opaque = (void*)(uintptr_t)de_inode_idx;
 
 			ptr += de_entry_size;
 		}

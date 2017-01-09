@@ -24,16 +24,16 @@
 
 extern void memory_barrier();
 
-extern uint32_t base_adjust;
+extern uintptr_t base_adjust;
 
-inline void mmio_write(uint32_t reg, uint32_t data)
+inline void mmio_write(uintptr_t reg, uint32_t data)
 {
 	memory_barrier();
 	*(volatile uint32_t *)(reg + base_adjust) = data;
 	memory_barrier();
 }
 
-inline uint32_t mmio_read(uint32_t reg)
+inline uint32_t mmio_read(uintptr_t reg)
 {
 	memory_barrier();
 	return *(volatile uint32_t *)(reg + base_adjust);

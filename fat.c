@@ -153,7 +153,7 @@ static size_t fat_fread(struct fs *fs, void *ptr, size_t byte_size, FILE *stream
 		return -1;
 
 	struct fat_file_block_offset opaque;
-	opaque.cluster = (uint32_t)stream->opaque;
+	opaque.cluster = (uintptr_t)stream->opaque;
 	opaque.f_block = 0;
 	return fs_fread(fat_get_next_bdev_block_num, fs, ptr, byte_size, stream, (void*)&opaque);
 }
@@ -445,7 +445,7 @@ struct dirent *fat_read_dir(struct fat_fs *fs, struct dirent *d)
 	if(is_root)
 		cur_cluster = fat->root_dir_cluster;
 	else
-		cur_cluster = (uint32_t)d->opaque;
+		cur_cluster = (uintptr_t)d->opaque;
 
 	struct dirent *ret = (void *)0;
 	struct dirent *prev = (void *)0;
@@ -535,7 +535,7 @@ struct dirent *fat_read_dir(struct fat_fs *fs, struct dirent *d)
 				de->is_dir = 1;
 			de->next = (void *)0;
 			de->byte_size = read_word(buf, ptr + 28);
-			uint32_t opaque = read_halfword(buf, ptr + 26) | 
+			uintptr_t opaque = read_halfword(buf, ptr + 26) | 
 				((uint32_t)read_halfword(buf, ptr + 20) << 16);
 
 			de->opaque = (void*)opaque;

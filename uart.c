@@ -25,8 +25,6 @@
 #include "uart.h"
 #include "timer.h"
 
-extern uint32_t base_adjust;
-
 #define GPIO_BASE 			0x20200000
 #define GPPUD 				0x94
 #define GPPUDCLK0 			0x98

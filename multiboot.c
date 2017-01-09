@@ -52,14 +52,14 @@ static int method_console_log(char *args);
 static void mem_cb(uint32_t addr, uint32_t len);
 static void mem_cb2(uint32_t addr, uint32_t len);
 
-extern uint32_t _atags;
-extern uint32_t _arm_m_type;
+extern uintptr_t _atags;
+extern unsigned long _arm_m_type;
 extern char *rpi_boot_name;
 uint32_t *mmap_ptr;
 
 struct multiboot_info *mbinfo = (void *)0;
-uint32_t entry_addr = 0;
-uint32_t binary_load_addr = 0;
+uintptr_t entry_addr = 0;
+uintptr_t binary_load_addr = 0;
 
 struct multiboot_method
 {
@@ -385,8 +385,8 @@ int method_multiboot(char *args)
 		parse_atag_or_dtb(mem_cb);
 
 		// Allocate the mmap buffer
-		mbinfo->mmap_addr = (uint32_t)malloc(mbinfo->mmap_length);
-		mmap_ptr = (uint32_t *)mbinfo->mmap_addr;
+		mbinfo->mmap_addr = (uintptr_t)malloc(mbinfo->mmap_length);
+		mmap_ptr = (uint32_t *)(uintptr_t)mbinfo->mmap_addr;
 
 		// Skip the pointer to the first item (4 bytes in - structure
 		// starts at offset -4)
@@ -437,7 +437,7 @@ int method_multiboot(char *args)
 
 		// Load the file
 		fseek(fp, (long)file_offset, SEEK_SET);
-		size_t b_read = fread((void *)mboot->load_addr, 1, (size_t)len, fp);
+		size_t b_read = fread((void *)(uintptr_t)mboot->load_addr, 1, (size_t)len, fp);
 		if(b_read != (size_t)len)
 		{
 			printf("MULTIBOOT: a.out load error - tried to load %i bytes "
@@ -447,7 +447,7 @@ int method_multiboot(char *args)
 
 		// Zero bss
 		if(bss_len)
-			memset((void *)(mboot->load_end_addr), 0, bss_len);
+			memset((void *)(uintptr_t)(mboot->load_end_addr), 0, bss_len);
 
 		// We don't process a.out symbol tables, therefore don't set bit 4
 	}
@@ -573,7 +573,7 @@ int method_multiboot(char *args)
 		// Set the ELF flags
 		mbinfo->u.elf_sec.num = ehdr->e_shnum;
 		mbinfo->u.elf_sec.size = ehdr->e_shentsize;
-		mbinfo->u.elf_sec.addr = (uint32_t)sh_buf;
+		mbinfo->u.elf_sec.addr = (uintptr_t)sh_buf;
 		mbinfo->u.elf_sec.shndx = ehdr->e_shstrndx;
 		mbinfo->flags |= (1 << 6);
 
@@ -596,7 +596,7 @@ int method_multiboot(char *args)
 
 	// Set the fb info
 #ifdef ENABLE_FRAMEBUFFER
-	mbinfo->fb_addr = (uint32_t)fb_get_framebuffer();
+	mbinfo->fb_addr = (uintptr_t)fb_get_framebuffer();
 	mbinfo->fb_size = (fb_get_width() << 16) | (fb_get_height() & 0xffff);
 	mbinfo->fb_pitch = fb_get_pitch();
 	mbinfo->fb_depth = (fb_get_bpp() << 16) | (0x1);	// TODO: check pixel_order
@@ -638,14 +638,14 @@ static void add_multiboot_modules()
 {
 	mbinfo->mods_count = mod_count;
 
-	mbinfo->mods_addr = (uint32_t)malloc(16 * mod_count);
+	mbinfo->mods_addr = (uintptr_t)malloc(16 * mod_count);
 	struct _module *cur_mod = first_mod;
 	for(int i = 0; i < mod_count; i++)
 	{
-		struct module *mmod = (struct module *)(mbinfo->mods_addr + i * 16);
+		struct module *mmod = (struct module *)(uintptr_t)(mbinfo->mods_addr + i * 16);
 		mmod->mod_start = cur_mod->start;
 		mmod->mod_end = cur_mod->end;
-		mmod->string = (uint32_t)cur_mod->name;
+		mmod->string = (uintptr_t)cur_mod->name;
 		mmod->reserved = 0;
 
 		cur_mod = cur_mod->next;
@@ -669,7 +669,7 @@ int method_module(char *args)
 	}
 
 	// Allocate a chunk for it
-	uint32_t address = chunk_get_any_chunk((uint32_t)fp->len);
+	uintptr_t address = chunk_get_any_chunk((uint32_t)fp->len);
 	if(!address)
 	{
 		printf("MODULE: unable to allocate a chunk of size %i for %s\n",
@@ -717,8 +717,8 @@ int method_boot(char *args)
 
 		void (*e_point)(uint32_t, uint32_t, uint32_t, uint32_t) =
 			(void(*)(uint32_t, uint32_t, uint32_t, uint32_t))entry_addr;
-		e_point(MULTIBOOT_BOOTLOADER_MAGIC, (uint32_t)mbinfo,
-				_arm_m_type, (uint32_t)&funcs);
+		e_point(MULTIBOOT_BOOTLOADER_MAGIC, (uintptr_t)mbinfo,
+				_arm_m_type, (uintptr_t)&funcs);
 	}
 	else
 	{
@@ -727,7 +727,7 @@ int method_boot(char *args)
 
 		void (*e_point)(uint32_t, uint32_t, uint32_t, uint32_t) =
 			(void(*)(uint32_t, uint32_t, uint32_t, uint32_t))entry_addr;
-		e_point(0x0, _arm_m_type, _atags, (uint32_t)&funcs);
+		e_point(0x0, _arm_m_type, _atags, (uintptr_t)&funcs);
 	}
 	return 0;
 }

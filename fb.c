@@ -61,12 +61,12 @@
 #define TAG_SET_PALETTE			0x4800b
 
 static uint32_t phys_w, phys_h, virt_w, virt_h, pitch;
-static uint32_t fb_addr, fb_size;
+static uintptr_t fb_addr, fb_size;
 
 int fb_init()
 {
 	// define a mailbox buffer
-	uint32_t mb_addr = 0x7000;		// 0x7000 in L2 cache coherent mode
+	uintptr_t mb_addr = 0x7000;		// 0x7000 in L2 cache coherent mode
 	volatile uint32_t *mailbuffer = (uint32_t *)mb_addr;
 
 	/* Get the display size */

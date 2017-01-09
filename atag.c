@@ -27,7 +27,7 @@
 
 extern const char *atag_cmd_line;
 extern int conf_source;
-extern uint32_t _atags;
+extern uintptr_t _atags;
 
 int check_atags(const void *atags)
 {
@@ -37,7 +37,8 @@ int check_atags(const void *atags)
 	return -1;
 }
 
-void parse_atags(uint32_t atags, void (*mem_cb)(uint32_t addr, uint32_t len))
+void parse_atags(uintptr_t atags,
+                 void (*mem_cb)(uint32_t addr, uint32_t len))
 {
 	if(atags == 0)
 		return;

@@ -33,7 +33,7 @@
 
 extern char _end;
 
-uint32_t cur_brk = 0;
+uintptr_t cur_brk = 0;
 uintptr_t cur_buf = MAX_BRK;
 
 uintptr_t alloc_buf(size_t size)
@@ -63,10 +63,10 @@ void *sbrk(uint32_t increment)
 	if(cur_brk == 0)
 	{
 #ifdef DEBUG2
-		printf("HEAP: initializing at %x\n", (uint32_t)&_end);
+		printf("HEAP: initializing at %p\n", &_end);
 #endif
 
-		cur_brk = (uint32_t)&_end;
+		cur_brk = (uintptr_t)&_end;
 		if(cur_brk & 0xfff)
 		{
 			cur_brk &= 0xfffff000;
@@ -74,7 +74,7 @@ void *sbrk(uint32_t increment)
 		}
 	}
 
-	uint32_t old_brk = cur_brk;
+	uintptr_t old_brk = cur_brk;
 
 	cur_brk += increment;
 	if(cur_brk >= MAX_BRK)

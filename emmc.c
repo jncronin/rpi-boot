@@ -480,7 +480,7 @@ static uint32_t sd_get_base_clock_hz()
     capabilities_0 = mmio_read(emmc_base + EMMC_CAPABILITIES_0);
     base_clock = ((capabilities_0 >> 8) & 0xff) * 1000000;
 #elif SDHCI_IMPLEMENTATION == SDHCI_IMPLEMENTATION_BCM_2708
-	uint32_t mb_addr = 0x00007000;		// 0x7000 in L2 cache coherent mode
+	uintptr_t mb_addr = 0x00007000;		// 0x7000 in L2 cache coherent mode
 	volatile uint32_t *mailbuffer = (uint32_t *)mb_addr;
 
 	/* Get the base clock rate */
@@ -532,7 +532,7 @@ static uint32_t sd_get_base_clock_hz()
 #if SDHCI_IMPLEMENTATION == SDHCI_IMPLEMENTATION_BCM_2708
 static int bcm_2708_power_off()
 {
-	uint32_t mb_addr = 0x40007000;		// 0x7000 in L2 cache coherent mode
+	uintptr_t mb_addr = 0x40007000;		// 0x7000 in L2 cache coherent mode
 	volatile uint32_t *mailbuffer = (uint32_t *)mb_addr;
 
 	/* Power off the SD card */
@@ -581,7 +581,7 @@ static int bcm_2708_power_off()
 
 static int bcm_2708_power_on()
 {
-	uint32_t mb_addr = 0x40007000;		// 0x7000 in L2 cache coherent mode
+	uintptr_t mb_addr = 0x40007000;		// 0x7000 in L2 cache coherent mode
 	volatile uint32_t *mailbuffer = (uint32_t *)mb_addr;
 
 	/* Power on the SD card */

@@ -121,7 +121,7 @@ struct atag
 };
 
 int check_atags(const void *atags);
-void parse_atags(uint32_t atags, void (*mem_cb)(uint32_t addr, uint32_t len));
+void parse_atags(uintptr_t atags, void (*mem_cb)(uint32_t addr, uint32_t len));
 
 void parse_atag_or_dtb(void (*mem_cb)(uint32_t addr, uint32_t len));
 
