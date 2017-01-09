@@ -27,6 +27,7 @@
 #include <errno.h>
 #include <ctype.h>
 #include "atag.h"
+#include "config_parse.h"
 #include "elf.h"
 #include "memchunk.h"
 #include "vfs.h"
@@ -61,13 +62,7 @@ struct multiboot_info *mbinfo = (void *)0;
 uintptr_t entry_addr = 0;
 uintptr_t binary_load_addr = 0;
 
-struct multiboot_method
-{
-	char *name;
-	int (*method)(char *args);
-};
-
-static struct multiboot_method methods[] =
+static struct config_parse_method methods[] =
 {
 	{
 		.name = "multiboot",
@@ -96,6 +91,9 @@ static struct multiboot_method methods[] =
 	{
 		.name = "console_log",
 		.method = method_console_log
+	},
+	{
+		.name = NULL,
 	},
 };
 
@@ -168,149 +166,9 @@ struct multiboot_arm_functions funcs =
 	.mb_arm_version = mb_arm_version
 };
 
-static char *read_line(char **buf)
+int multiboot_cfg_parse(char *buf)
 {
-	char *start = *buf;
-	char *ptr = *buf;
-
-	if(!*start)
-		return (void*)0;
-	while((*ptr != 0) && (*ptr != '\n'))
-		ptr++;
-
-	if(*ptr == 0)
-	{
-		// End of the string
-		*buf = ptr;
-		return start;
-	}
-	else
-	{
-		// End of a line - null terminate
-		*ptr = 0;
-		ptr++;
-		*buf = ptr;
-		return start;
-	}
-}
-
-/* Remove leading and trailing whitespace and trailing comments from a configuration line */
-static char *strip_comments(char *buf)
-{
-	// Remove leading whitespace
-	while(isspace(*buf))
-		buf++;
-
-	// Remove comments
-	char *s = buf;
-	while(*s)
-	{
-		if(*s == '#')
-			*s = '\0';
-		else
-			s++;
-	}
-
-	// Remove trailing whitespace
-	s--;
-	while((s > buf) && isspace(*s))
-	{
-		*s = '\0';
-		s--;
-	}
-
-	return buf;
-}
-
-char empty_string[] = "";
-
-static void split_string(char *str, char **method, char **args)
-{
-	int state = 0;
-	char *p = str;
-
-	// state = 	0 - reading spaces before method
-	// 		1 - reading method
-	// 		2 - reading spaces before argument
-
-	*method = empty_string;
-	*args = empty_string;
-
-	while(*p)
-	{
-		if(*p == ' ')
-		{
-			if(state == 1)
-			{
-				*p = 0;	// null terminate method
-				state = 2;
-			}
-		}
-		else
-		{
-			if(state == 0)
-			{
-				*method = p;
-				state = 1;
-			}
-			else if(state == 2)
-			{
-				*args = p;
-				return;
-			}
-		}
-		p++;
-	}
-}
-
-int cfg_parse(char *buf)
-{
-	char *line;
-	char *b = buf;
-	while((line = read_line(&b)))
-	{
-		line = strip_comments(line);
-#ifdef MULTIBOOT_DEBUG
-		printf("read_line: %s\n", line);
-#endif
-		char *method, *args;
-		split_string(line, &method, &args);
-#ifdef MULTIBOOT_DEBUG
-		printf("method: %s, args: %s\n", method, args);
-#endif
-
-		if(!strcmp(method, empty_string))
-			continue;
-
-		// Find and run the method
-		int method_count = sizeof(methods) / sizeof(struct multiboot_method);
-		int found = 0;
-		for(int i = 0; i < method_count; i++)
-		{
-			char *lwr = strlwr(method);
-
-			if(!strcmp(lwr, methods[i].name))
-			{
-				found = 1;
-				int retno = methods[i].method(args);
-				if(retno != 0)
-				{
-					printf("cfg_parse: %s failed with "
-							"%i\n", line,
-							retno);
-					return retno;
-				}
-				free(lwr);
-				break;
-			}
-			free(lwr);
-		}
-
-		if(!found)
-			printf("cfg_parse: unknown method %s\n", method);
-	}
-
-	return 0;
+	return config_parse(buf, methods);
 }
 
 int method_multiboot(char *args)

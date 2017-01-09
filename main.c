@@ -80,7 +80,7 @@ extern int (*stderr_putc)(int);
 extern int (*stream_putc)(int, FILE*);
 extern int def_stream_putc(int, FILE*);
 
-int cfg_parse(char *buf);
+int multiboot_cfg_parse(char *buf);
 
 int conf_source = 0;
 
@@ -257,7 +257,7 @@ void kernel_main(unsigned long boot_dev, unsigned long arm_m_type,
 		buf[flen] = 0;		// null terminate
 		fread(buf, 1, flen, f);
 		fclose(f);
-		cfg_parse(buf);
+		multiboot_cfg_parse(buf);
 	}
 }
 
