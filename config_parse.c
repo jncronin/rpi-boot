@@ -83,7 +83,7 @@ static char *strip_comments(char *buf)
 
 const char empty_string[] = "";
 
-void split_string(char *str, char **method, char **args)
+void split_string(char *str, char delim, char **method, char **args)
 {
 	int state = 0;
 	char *p = str;
@@ -95,9 +95,12 @@ void split_string(char *str, char **method, char **args)
 	*method = (char*)empty_string;
 	*args = (char*)empty_string;
 
+	if (!delim)
+		delim = ' ';
+
 	while(*p)
 	{
-		if(*p == ' ')
+		if(*p == delim)
 		{
 			if(state == 1)
 			{
@@ -122,7 +125,8 @@ void split_string(char *str, char **method, char **args)
 	}
 }
 
-int config_parse(char *buf, const struct config_parse_method *methods)
+int config_parse(char *buf, char delim,
+		 const struct config_parse_method *methods)
 {
 	char *line;
 	char *b = buf;
@@ -135,7 +139,7 @@ int config_parse(char *buf, const struct config_parse_method *methods)
 		printf("read_line: %s\n", line);
 #endif
 		char *method, *args;
-		split_string(line, &method, &args);
+		split_string(line, delim, &method, &args);
 #ifdef MULTIBOOT_DEBUG
 		printf("method: %s, args: %s\n", method, args);
 #endif

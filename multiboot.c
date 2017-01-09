@@ -168,7 +168,7 @@ struct multiboot_arm_functions funcs =
 
 int multiboot_cfg_parse(char *buf)
 {
-	return config_parse(buf, methods);
+	return config_parse(buf, ' ', methods);
 }
 
 int method_multiboot(char *args)
@@ -177,7 +177,7 @@ int method_multiboot(char *args)
 	printf("Interpreting multiboot command\n");
 #endif
 	char *file, *cmd_line;
-	split_string(args, &file, &cmd_line);
+	split_string(args, ' ', &file, &cmd_line);
 
 	// First load up the first 8192 bytes to look for the multiboot header
 	FILE *fp = fopen(file, "r");
@@ -513,7 +513,7 @@ static void add_multiboot_modules()
 int method_module(char *args)
 {
 	char *file, *name;
-	split_string(args, &file, &name);
+	split_string(args, ' ', &file, &name);
 
 	if(!strcmp(name, empty_string))
 		name = file;
@@ -593,7 +593,7 @@ int method_boot(char *args)
 int method_kernel(char *args)
 {
 	char *file, *name;
-	split_string(args, &file, &name);
+	split_string(args, ' ', &file, &name);
 
 	FILE *fp = fopen(file, "r");
 	if(!fp)
@@ -776,7 +776,7 @@ int method_console_log(char *args)
 	char *endptr;
 	FILE *target;
 
-	split_string(args, &logName, &buffer_size);
+	split_string(args, ' ', &logName, &buffer_size);
 
 	// Determine if we are appending
 	if(logName[strlen(logName) - 1] == '+')

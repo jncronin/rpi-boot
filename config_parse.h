@@ -25,9 +25,11 @@ struct config_parse_method
 {
 	char *name;
 	int (*method)(char *args);
+	char delim;
 };
 
 extern const char empty_string[];
 
-void split_string(char *str, char **method, char **args);
-int config_parse(char *buf, const struct config_parse_method *methods);
+void split_string(char *str, char delim, char **method, char **args);
+int config_parse(char *buf, char delim,
+		 const struct config_parse_method *methods);
