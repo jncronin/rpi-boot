@@ -19,24 +19,72 @@
  * THE SOFTWARE.
  */
 
-#include <stdint.h>
-#include "mmio.h"
+.section ".text.boot"
 
-extern void memory_barrier();
+.globl Start
 
-extern uintptr_t base_adjust;
+Start:
+	adr	x20, stack + (1 << 15)
+	mov	sp, x20
 
-inline void mmio_write(uintptr_t reg, uint32_t data)
-{
-	memory_barrier();
-	*(volatile uint32_t *)(reg + base_adjust) = data;
-	memory_barrier();
-}
+	/* Clear out bss */
+	ldr	x4, =_bss_start
+	ldr	x9, =_bss_end
+	mov	x5, #0
+	mov	x6, #0
 
-inline uint32_t mmio_read(uintptr_t reg)
-{
-	memory_barrier();
-	return *(volatile uint32_t *)(reg + base_adjust);
-	memory_barrier();
-}
+	b	.test
+
+.loop:
+	/* this does 2x8 = 16 byte stores at once */
+	stp	x5, x6, [x4, #0]
+	add	x4, x4, #16
+.test:
+	cmp	x4, x9
+	blo	.loop
+
+	/* branch and link to kernel_main */
+	bl	kernel_main
+
+halt:
+	wfe		/* equivalent of x86 HLT instruction */
+	b	halt
+
+.globl flush_cache
+flush_cache:
+	mov 	x0, #0
+	/* XXX, not used in QEMU */
+	ret
+
+.globl memory_barrier
+memory_barrier:
+	mov	x0, #0
+	dmb	sy
+	ret
+
+.globl read_sctlr
+read_sctlr:
+	mrs	x0, sctlr_el2
+	ret
+
+.globl quick_memcpy
+quick_memcpy:
+	mov	x10, x0
+	mov	x11, x1
+
+.loopb:
+	ldp	x12, x13, [x11, #0]
+	add	x11, x11, #16
+	stp	x12, x13, [x10, #0]
+	add	x10, x10, #16
+	sub	x2, x2, #16
+	cmp	x2, #0
+	bhi	.loopb
+
+	ret
+
+.section ".bss"
+	.align 4		/* Align on 128bit boundary */
+	stack:
+	.align 15		/* Reserve 32kb of stack */
 

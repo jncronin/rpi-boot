@@ -19,24 +19,17 @@
  * THE SOFTWARE.
  */
 
-#include <stdint.h>
-#include "mmio.h"
+/* Helper to parse .cfg files */
 
-extern void memory_barrier();
-
-extern uintptr_t base_adjust;
-
-inline void mmio_write(uintptr_t reg, uint32_t data)
+struct config_parse_method
 {
-	memory_barrier();
-	*(volatile uint32_t *)(reg + base_adjust) = data;
-	memory_barrier();
-}
+	char *name;
+	int (*method)(char *args);
+	char delim;
+};
 
-inline uint32_t mmio_read(uintptr_t reg)
-{
-	memory_barrier();
-	return *(volatile uint32_t *)(reg + base_adjust);
-	memory_barrier();
-}
+extern const char empty_string[];
 
+void split_string(char *str, char delim, char **method, char **args);
+int config_parse(char *buf, char delim,
+		 const struct config_parse_method *methods);

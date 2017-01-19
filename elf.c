@@ -93,7 +93,7 @@ int elf32_read_shdrs(FILE *fp, Elf32_Ehdr *ehdr, uint8_t **shdrs)
 int elf32_load_section(FILE *fp, Elf32_Shdr *shdr)
 {
 	if(shdr->sh_type == SHT_NOBITS)
-		memset((void*)shdr->sh_addr, 0, shdr->sh_size);
+		memset((void*)(uintptr_t)shdr->sh_addr, 0, shdr->sh_size);
 	else
 	{
 		if(!shdr->sh_offset)
@@ -101,7 +101,7 @@ int elf32_load_section(FILE *fp, Elf32_Shdr *shdr)
 
 		fseek(fp, (long)shdr->sh_offset, SEEK_SET);
 		size_t bytes_to_read = (size_t)shdr->sh_size;
-		size_t bytes_read = fread((void *)shdr->sh_addr,
+		size_t bytes_read = fread((void *)(uintptr_t)shdr->sh_addr,
 				1, bytes_to_read, fp);
 		if(bytes_to_read != bytes_read)
 			return ELF_FILE_LOAD_ERROR;
@@ -125,7 +125,7 @@ int elf32_read_phdrs(FILE *fp, Elf32_Ehdr *ehdr, uint8_t **phdrs)
 
 int elf32_load_segment(FILE *fp, Elf32_Phdr *phdr)
 {
-	uint32_t load_address = phdr->p_vaddr;
+	uintptr_t load_address = phdr->p_vaddr;
 	if(phdr->p_filesz)
 	{
 		// Load the file image

@@ -27,6 +27,7 @@
 #include <errno.h>
 #include <ctype.h>
 #include "atag.h"
+#include "config_parse.h"
 #include "elf.h"
 #include "memchunk.h"
 #include "vfs.h"
@@ -52,22 +53,16 @@ static int method_console_log(char *args);
 static void mem_cb(uint32_t addr, uint32_t len);
 static void mem_cb2(uint32_t addr, uint32_t len);
 
-extern uint32_t _atags;
-extern uint32_t _arm_m_type;
+extern uintptr_t _atags;
+extern unsigned long _arm_m_type;
 extern char *rpi_boot_name;
 uint32_t *mmap_ptr;
 
 struct multiboot_info *mbinfo = (void *)0;
-uint32_t entry_addr = 0;
-uint32_t binary_load_addr = 0;
+uintptr_t entry_addr = 0;
+uintptr_t binary_load_addr = 0;
 
-struct multiboot_method
-{
-	char *name;
-	int (*method)(char *args);
-};
-
-static struct multiboot_method methods[] =
+static struct config_parse_method methods[] =
 {
 	{
 		.name = "multiboot",
@@ -96,6 +91,9 @@ static struct multiboot_method methods[] =
 	{
 		.name = "console_log",
 		.method = method_console_log
+	},
+	{
+		.name = NULL,
 	},
 };
 
@@ -168,149 +166,9 @@ struct multiboot_arm_functions funcs =
 	.mb_arm_version = mb_arm_version
 };
 
-static char *read_line(char **buf)
+int multiboot_cfg_parse(char *buf)
 {
-	char *start = *buf;
-	char *ptr = *buf;
-
-	if(!*start)
-		return (void*)0;
-	while((*ptr != 0) && (*ptr != '\n'))
-		ptr++;
-
-	if(*ptr == 0)
-	{
-		// End of the string
-		*buf = ptr;
-		return start;
-	}
-	else
-	{
-		// End of a line - null terminate
-		*ptr = 0;
-		ptr++;
-		*buf = ptr;
-		return start;
-	}
-}
-
-/* Remove leading and trailing whitespace and trailing comments from a configuration line */
-static char *strip_comments(char *buf)
-{
-	// Remove leading whitespace
-	while(isspace(*buf))
-		buf++;
-
-	// Remove comments
-	char *s = buf;
-	while(*s)
-	{
-		if(*s == '#')
-			*s = '\0';
-		else
-			s++;
-	}
-
-	// Remove trailing whitespace
-	s--;
-	while((s > buf) && isspace(*s))
-	{
-		*s = '\0';
-		s--;
-	}
-
-	return buf;
-}
-
-char empty_string[] = "";
-
-static void split_string(char *str, char **method, char **args)
-{
-	int state = 0;
-	char *p = str;
-
-	// state = 	0 - reading spaces before method
-	// 		1 - reading method
-	// 		2 - reading spaces before argument
-
-	*method = empty_string;
-	*args = empty_string;
-
-	while(*p)
-	{
-		if(*p == ' ')
-		{
-			if(state == 1)
-			{
-				*p = 0;	// null terminate method
-				state = 2;
-			}
-		}
-		else
-		{
-			if(state == 0)
-			{
-				*method = p;
-				state = 1;
-			}
-			else if(state == 2)
-			{
-				*args = p;
-				return;
-			}
-		}
-		p++;
-	}
-}
-
-int cfg_parse(char *buf)
-{
-	char *line;
-	char *b = buf;
-	while((line = read_line(&b)))
-	{
-		line = strip_comments(line);
-#ifdef MULTIBOOT_DEBUG
-		printf("read_line: %s\n", line);
-#endif
-		char *method, *args;
-		split_string(line, &method, &args);
-#ifdef MULTIBOOT_DEBUG
-		printf("method: %s, args: %s\n", method, args);
-#endif
-
-		if(!strcmp(method, empty_string))
-			continue;
-
-		// Find and run the method
-		int method_count = sizeof(methods) / sizeof(struct multiboot_method);
-		int found = 0;
-		for(int i = 0; i < method_count; i++)
-		{
-			char *lwr = strlwr(method);
-
-			if(!strcmp(lwr, methods[i].name))
-			{
-				found = 1;
-				int retno = methods[i].method(args);
-				if(retno != 0)
-				{
-					printf("cfg_parse: %s failed with "
-							"%i\n", line,
-							retno);
-					return retno;
-				}
-				free(lwr);
-				break;
-			}
-			free(lwr);
-		}
-
-		if(!found)
-			printf("cfg_parse: unknown method %s\n", method);
-	}
-
-	return 0;
+	return config_parse(buf, ' ', methods);
 }
 
 int method_multiboot(char *args)
@@ -319,7 +177,7 @@ int method_multiboot(char *args)
 	printf("Interpreting multiboot command\n");
 #endif
 	char *file, *cmd_line;
-	split_string(args, &file, &cmd_line);
+	split_string(args, ' ', &file, &cmd_line);
 
 	// First load up the first 8192 bytes to look for the multiboot header
 	FILE *fp = fopen(file, "r");
@@ -385,8 +243,8 @@ int method_multiboot(char *args)
 		parse_atag_or_dtb(mem_cb);
 
 		// Allocate the mmap buffer
-		mbinfo->mmap_addr = (uint32_t)malloc(mbinfo->mmap_length);
-		mmap_ptr = (uint32_t *)mbinfo->mmap_addr;
+		mbinfo->mmap_addr = (uintptr_t)malloc(mbinfo->mmap_length);
+		mmap_ptr = (uint32_t *)(uintptr_t)mbinfo->mmap_addr;
 
 		// Skip the pointer to the first item (4 bytes in - structure
 		// starts at offset -4)
@@ -437,7 +295,7 @@ int method_multiboot(char *args)
 
 		// Load the file
 		fseek(fp, (long)file_offset, SEEK_SET);
-		size_t b_read = fread((void *)mboot->load_addr, 1, (size_t)len, fp);
+		size_t b_read = fread((void *)(uintptr_t)mboot->load_addr, 1, (size_t)len, fp);
 		if(b_read != (size_t)len)
 		{
 			printf("MULTIBOOT: a.out load error - tried to load %i bytes "
@@ -447,7 +305,7 @@ int method_multiboot(char *args)
 
 		// Zero bss
 		if(bss_len)
-			memset((void *)(mboot->load_end_addr), 0, bss_len);
+			memset((void *)(uintptr_t)(mboot->load_end_addr), 0, bss_len);
 
 		// We don't process a.out symbol tables, therefore don't set bit 4
 	}
@@ -573,7 +431,7 @@ int method_multiboot(char *args)
 		// Set the ELF flags
 		mbinfo->u.elf_sec.num = ehdr->e_shnum;
 		mbinfo->u.elf_sec.size = ehdr->e_shentsize;
-		mbinfo->u.elf_sec.addr = (uint32_t)sh_buf;
+		mbinfo->u.elf_sec.addr = (uintptr_t)sh_buf;
 		mbinfo->u.elf_sec.shndx = ehdr->e_shstrndx;
 		mbinfo->flags |= (1 << 6);
 
@@ -596,7 +454,7 @@ int method_multiboot(char *args)
 
 	// Set the fb info
 #ifdef ENABLE_FRAMEBUFFER
-	mbinfo->fb_addr = (uint32_t)fb_get_framebuffer();
+	mbinfo->fb_addr = (uintptr_t)fb_get_framebuffer();
 	mbinfo->fb_size = (fb_get_width() << 16) | (fb_get_height() & 0xffff);
 	mbinfo->fb_pitch = fb_get_pitch();
 	mbinfo->fb_depth = (fb_get_bpp() << 16) | (0x1);	// TODO: check pixel_order
@@ -638,14 +496,14 @@ static void add_multiboot_modules()
 {
 	mbinfo->mods_count = mod_count;
 
-	mbinfo->mods_addr = (uint32_t)malloc(16 * mod_count);
+	mbinfo->mods_addr = (uintptr_t)malloc(16 * mod_count);
 	struct _module *cur_mod = first_mod;
 	for(int i = 0; i < mod_count; i++)
 	{
-		struct module *mmod = (struct module *)(mbinfo->mods_addr + i * 16);
+		struct module *mmod = (struct module *)(uintptr_t)(mbinfo->mods_addr + i * 16);
 		mmod->mod_start = cur_mod->start;
 		mmod->mod_end = cur_mod->end;
-		mmod->string = (uint32_t)cur_mod->name;
+		mmod->string = (uintptr_t)cur_mod->name;
 		mmod->reserved = 0;
 
 		cur_mod = cur_mod->next;
@@ -655,7 +513,7 @@ static void add_multiboot_modules()
 int method_module(char *args)
 {
 	char *file, *name;
-	split_string(args, &file, &name);
+	split_string(args, ' ', &file, &name);
 
 	if(!strcmp(name, empty_string))
 		name = file;
@@ -669,7 +527,7 @@ int method_module(char *args)
 	}
 
 	// Allocate a chunk for it
-	uint32_t address = chunk_get_any_chunk((uint32_t)fp->len);
+	uintptr_t address = chunk_get_any_chunk((uint32_t)fp->len);
 	if(!address)
 	{
 		printf("MODULE: unable to allocate a chunk of size %i for %s\n",
@@ -717,8 +575,8 @@ int method_boot(char *args)
 
 		void (*e_point)(uint32_t, uint32_t, uint32_t, uint32_t) =
 			(void(*)(uint32_t, uint32_t, uint32_t, uint32_t))entry_addr;
-		e_point(MULTIBOOT_BOOTLOADER_MAGIC, (uint32_t)mbinfo,
-				_arm_m_type, (uint32_t)&funcs);
+		e_point(MULTIBOOT_BOOTLOADER_MAGIC, (uintptr_t)mbinfo,
+				_arm_m_type, (uintptr_t)&funcs);
 	}
 	else
 	{
@@ -727,7 +585,7 @@ int method_boot(char *args)
 
 		void (*e_point)(uint32_t, uint32_t, uint32_t, uint32_t) =
 			(void(*)(uint32_t, uint32_t, uint32_t, uint32_t))entry_addr;
-		e_point(0x0, _arm_m_type, _atags, (uint32_t)&funcs);
+		e_point(0x0, _arm_m_type, _atags, (uintptr_t)&funcs);
 	}
 	return 0;
 }
@@ -735,7 +593,7 @@ int method_boot(char *args)
 int method_kernel(char *args)
 {
 	char *file, *name;
-	split_string(args, &file, &name);
+	split_string(args, ' ', &file, &name);
 
 	FILE *fp = fopen(file, "r");
 	if(!fp)
@@ -918,7 +776,7 @@ int method_console_log(char *args)
 	char *endptr;
 	FILE *target;
 
-	split_string(args, &logName, &buffer_size);
+	split_string(args, ' ', &logName, &buffer_size);
 
 	// Determine if we are appending
 	if(logName[strlen(logName) - 1] == '+')
