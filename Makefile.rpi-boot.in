@@ -1,13 +1,13 @@
 #include "config.h"
 
 /* Allow cross as well as native compilation */
-CROSS_COMPILE  ?=
+CROSS_COMPILE  ?= arm-none-eabi-
 HOSTCC          = $(CC)
-ARMCC          ?= $(CROSS_COMPILE)gcc
-ARMLD          ?= $(CROSS_COMPILE)ld
-ARMOBJCOPY     ?= $(CROSS_COMPILE)objcopy
-ARMOBJDUMP     ?= $(CROSS_COMPILE)objdump
-ARMAR          ?= $(CROSS_COMPILE)ar
+export ARMCC          ?= $(CROSS_COMPILE)gcc
+export ARMLD          ?= $(CROSS_COMPILE)ld
+export ARMOBJCOPY     ?= $(CROSS_COMPILE)objcopy
+export ARMOBJDUMP     ?= $(CROSS_COMPILE)objdump
+export ARMAR          ?= $(CROSS_COMPILE)ar
 
 QEMU ?= qemu-system-arm
 
@@ -128,6 +128,8 @@ LIBFS_OBJS = libfs.o $(SD_OBJS) block.o $(MBR_OBJS) $(FAT_OBJS) vfs.o $(EXT2_OBJ
 
 QEMUFW_OBJS = qemufw.o
 
+export CFLAGS
+
 .PHONY: clean
 .PHONY: qemu
 .PHONY: qemu-gdb
@@ -162,6 +164,7 @@ kernel-qemu.img: kernel-qemu.elf
 
 clean:
 	$(RM) -f $(OBJS) $(DISASM_DUMP) kernel.elf kernel.img kernel-qemu.img kernel-qemu.elf $(MAKEFILE) kernel.img-preheader kernel.img-atag libfs.a assert.o $(QEMUFW_OBJS)
+	cd libdtc && $(MAKE) clean
 
 %.o: %.c $(MAKEFILE) $(CONFIG_H)
 	$(ARMCC) $(CFLAGS) -include $(CONFIG_H) -c $< -o $@
