@@ -25,6 +25,10 @@ CFLAGS += -nostdlib -nostartfiles -ffreestanding -Wall -Wextra -Werror -Wshadow
 CFLAGS += -std=gnu99
 CFLAGS += -I. -Ilibdtc/libfdt
 CFLAGS += -DBUILDING_RPIBOOT
+CFLAGS += -mcpu=arm1176jzf-s
+CFLAGS += -mfloat-abi=soft
+CFLAGS += -fno-builtin
+CFLAGS += -fno-tree-loop-distribute-patterns
 
 #ifdef DEBUG
 CFLAGS += -g -O0
