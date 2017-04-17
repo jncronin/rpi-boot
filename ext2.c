@@ -110,7 +110,14 @@ static char ext2_name[] = "ext2";
 
 static uint32_t get_sector_num(struct ext2_fs *fs, uint32_t block_no)
 {
-	return block_no * fs->b.block_size / fs->b.parent->block_size;
+	uint32_t ret = block_no * fs->b.block_size / fs->b.parent->block_size;
+
+#ifdef EXT2_DEBUG
+	printf("EXT2: get_sector_num(fs, %u) returning %u\n",
+			block_no, ret);
+#endif
+
+	return ret;
 }
 
 static uint8_t *read_block(struct ext2_fs *fs, uint32_t block_no)
@@ -128,9 +135,11 @@ static uint8_t *read_block(struct ext2_fs *fs, uint32_t block_no)
 
 static uint32_t get_block_no_from_inode(struct ext2_fs *fs, struct ext2_inode *i, uint32_t index, int add_blocks)
 {
+	uint32_t ret;
+
 	// If the block index is < 12 use the direct block pointers
 	if(index < 12)
-		return ((uint32_t *)&i->db0)[index];
+		ret = ((uint32_t *)&i->db0)[index];
 	else
 	{
 		// If the block index is < (12 + pointers_per_indirect_block),
@@ -144,9 +153,8 @@ static uint32_t get_block_no_from_inode(struct ext2_fs *fs, struct ext2_inode *i
 			if(!sib)
 				return 0;
 
-			uint32_t ret = ((uint32_t *)sib)[index];
+			ret = ((uint32_t *)sib)[index];
 			free(sib);
-			return ret;
 		}
 		else
 		{
@@ -173,9 +181,8 @@ static uint32_t get_block_no_from_inode(struct ext2_fs *fs, struct ext2_inode *i
 				if(!sib)
 					return 0;
 
-				uint32_t ret = ((uint32_t *)sib)[sib_index];
+				ret = ((uint32_t *)sib)[sib_index];
 				free(sib);
-				return ret;
 			}
 			else
 			{
@@ -214,9 +221,8 @@ static uint32_t get_block_no_from_inode(struct ext2_fs *fs, struct ext2_inode *i
 					if(!sib)
 						return 0;
 
-					uint32_t ret = ((uint32_t *)sib)[sib_index];
+					ret = ((uint32_t *)sib)[sib_index];
 					free(sib);
-					return ret;
 				}
 				else
 				{
@@ -231,6 +237,11 @@ static uint32_t get_block_no_from_inode(struct ext2_fs *fs, struct ext2_inode *i
 			}
 		}
 	}
+
+#ifdef EXT2_DEBUG
+	printf("EXT2: returning block number %u\n", ret);
+#endif
+	return ret;
 }
 
 static FILE *ext2_fopen(struct fs *fs, struct dirent *path, const char *mode)
@@ -255,6 +266,10 @@ static FILE *ext2_fopen(struct fs *fs, struct dirent *path, const char *mode)
 	ret->pos = 0;
 	ret->opaque = path->opaque;
 
+#ifdef EXT2_DEBUG
+	printf("EXT2: fopening inode %u\n", (uint32_t)path->opaque);
+#endif
+
 	// We have to load the inode to get the length
 	struct ext2_inode *inode = ext2_read_inode(ext2,
 			(uintptr_t)path->opaque);
@@ -266,8 +281,11 @@ static FILE *ext2_fopen(struct fs *fs, struct dirent *path, const char *mode)
 
 static uint32_t ext2_get_next_bdev_block_num(uint32_t f_block_idx, FILE *s, void *opaque, int add_blocks)
 {
-	return get_block_no_from_inode((struct ext2_fs *)s->fs, (struct ext2_inode *)opaque,
+	uint32_t ret = get_block_no_from_inode((struct ext2_fs *)s->fs, (struct ext2_inode *)opaque,
 		f_block_idx, add_blocks);
+
+	ret = get_sector_num((struct ext2_fs *)s->fs, ret);
+	return ret;
 }
 
 static size_t ext2_fread(struct fs *fs, void *ptr, size_t byte_size, FILE *stream)
