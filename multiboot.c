@@ -507,6 +507,8 @@ static void add_multiboot_modules()
 		mmod->reserved = 0;
 
 		cur_mod = cur_mod->next;
+
+		mbinfo->flags |= (1<<3);
 	}
 }
 
