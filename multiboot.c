@@ -248,7 +248,7 @@ int method_multiboot(char *args)
 
 		// Skip the pointer to the first item (4 bytes in - structure
 		// starts at offset -4)
-		mbinfo->mmap_addr += 4;
+//		mbinfo->mmap_addr += 4;
 
 		// Now fill in the buffer
 		parse_atag_or_dtb(mem_cb2);
@@ -507,6 +507,8 @@ static void add_multiboot_modules()
 		mmod->reserved = 0;
 
 		cur_mod = cur_mod->next;
+
+		mbinfo->flags |= (1<<3);
 	}
 }
 
@@ -849,7 +851,7 @@ void mem_cb(uint32_t start, uint32_t size)
 
 void mem_cb2(uint32_t start, uint32_t size)
 {
-	mmap_ptr[0] = 24;	// size of the tag
+	mmap_ptr[0] = 20;	// size of the tag
 	mmap_ptr[1] = start;	// base addr
 	mmap_ptr[2] = 0;	// upper 32 bits of base addr
 	mmap_ptr[3] = size;	// length
