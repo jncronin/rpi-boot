@@ -454,10 +454,21 @@ int method_multiboot(char *args)
 
 	// Set the fb info
 #ifdef ENABLE_FRAMEBUFFER
-	mbinfo->fb_addr = (uintptr_t)fb_get_framebuffer();
-	mbinfo->fb_size = (fb_get_width() << 16) | (fb_get_height() & 0xffff);
-	mbinfo->fb_pitch = fb_get_pitch();
-	mbinfo->fb_depth = (fb_get_bpp() << 16) | (0x1);	// TODO: check pixel_order
+	mbinfo->framebuffer_addr = (uint32_t)(uintptr_t)fb_get_framebuffer();
+	mbinfo->framebuffer_width = fb_get_width();
+	mbinfo->framebuffer_height = fb_get_height();
+	mbinfo->framebuffer_pitch = fb_get_pitch();
+	mbinfo->framebuffer_bpp = fb_get_bpp();
+	mbinfo->framebuffer_type = MULTIBOOT_FRAMEBUFFER_TYPE_RGB;
+
+	// The following need checking
+	mbinfo->framebuffer_red_field_position = 16;
+	mbinfo->framebuffer_red_mask_size = 8;
+	mbinfo->framebuffer_green_field_position = 8;
+	mbinfo->framebuffer_green_mask_size = 8;
+	mbinfo->framebuffer_blue_field_position = 0;
+	mbinfo->framebuffer_blue_mask_size = 8;
+
 	mbinfo->flags |= (1 << 11);
 #endif
 

@@ -147,18 +147,6 @@ drives_addr:
 drives_length:
     This is the length of the above list.
 
-vbe_control_info, vbe_mode_info, vbe_mode, vbe_interface_seg,
-vbe_interface_off, vbe_interface_len:
-    These are redefined to the following:
-    
-    Offset	Name		Function
-
-    72		fb_addr		Physical address of the linear framebuffer
-    76		fb_size		Frame buffer width << 16 | height
-    80		fb_pitch	Bytes between each physical line
-    84		fb_depth	Bits per pixel << 16 | pixel_order
-					pixel_order:
-					0:	BGR
-					1:	RGB
-
+The additional fields (framebuffer_*) defined in multiboot.h in the grub
+distribution are also supported.
 

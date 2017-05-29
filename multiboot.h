@@ -184,19 +184,39 @@ typedef struct multiboot_info
   uint32_t apm_table;
 
   /* Video */
-#if defined(__ARMEL__) || defined(__aarch64__)
-  uint32_t fb_addr;
-  uint32_t fb_size;
-  uint32_t fb_pitch;
-  uint32_t fb_depth;
-#else
   uint32_t vbe_control_info;
   uint32_t vbe_mode_info;
   uint16_t vbe_mode;
   uint16_t vbe_interface_seg;
   uint16_t vbe_interface_off;
   uint16_t vbe_interface_len;
-#endif
+
+  uint64_t framebuffer_addr;
+  uint32_t framebuffer_pitch;
+  uint32_t framebuffer_width;
+  uint32_t framebuffer_height;
+  uint8_t framebuffer_bpp;
+#define MULTIBOOT_FRAMEBUFFER_TYPE_INDEXED 0
+#define MULTIBOOT_FRAMEBUFFER_TYPE_RGB     1
+#define MULTIBOOT_FRAMEBUFFER_TYPE_EGA_TEXT	2
+  uint8_t framebuffer_type;
+  union
+  {
+    struct
+    {
+      uint32_t framebuffer_palette_addr;
+      uint16_t framebuffer_palette_num_colors;
+    };
+    struct
+    {
+      uint8_t framebuffer_red_field_position;
+      uint8_t framebuffer_red_mask_size;
+      uint8_t framebuffer_green_field_position;
+      uint8_t framebuffer_green_mask_size;
+      uint8_t framebuffer_blue_field_position;
+      uint8_t framebuffer_blue_mask_size;
+    };
+  };
 } multiboot_info_t;
 
 typedef struct module
