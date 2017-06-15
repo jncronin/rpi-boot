@@ -181,12 +181,6 @@ void kernel_main(unsigned long boot_dev, unsigned long arm_m_type,
 	output_init();
 	output_enable_uart();
 
-	// dump arguments to main
-#ifdef DEBUG
-	printf("MAIN: boot_dev: %x, arm_m_type: %i, atags: %x\n", boot_dev,
-			arm_m_type, atags);
-#endif
-
 	// try and interpret device tree/atags
 	if(fdt_check_header((const void *)atags) == 0)
 		conf_source = 3;
@@ -224,6 +218,12 @@ void kernel_main(unsigned long boot_dev, unsigned long arm_m_type,
 			uart_init();
 			break;
 	}
+
+	// dump arguments to main
+#ifdef DEBUG
+	printf("MAIN: boot_dev: %x, arm_m_type: %i, atags: %x\n", boot_dev,
+			arm_m_type, atags);
+#endif
 
 #ifdef ENABLE_FRAMEBUFFER
 	int result = fb_init();
