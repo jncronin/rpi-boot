@@ -73,7 +73,7 @@ void output_enable_custom()
 
 void output_disable_log()
 {
-	ostate &= RPIBOOT_OUTPUT_LOG;
+	ostate &= ~RPIBOOT_OUTPUT_LOG;
 }
 
 void output_enable_log()
