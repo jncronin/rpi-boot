@@ -532,7 +532,7 @@ int method_module(char *args)
 		name = file;
 
 	// Load a module
-	FILE *fp = fopen(name, "r");
+	FILE *fp = fopen(file, "r");
 	if(!fp)
 	{
 		printf("MODULE: cannot load file %s\n", name);
@@ -817,7 +817,7 @@ int method_console_log(char *args)
 	       logName, bufferSize, bufferSize);
 #endif
 
-	if (NULL == (target = fopen(logName, (is_append) ? "a+" : "w+"))) 
+	if (NULL == (target = fopen(logName, (is_append) ? "a+" : "w+")))
 	{
 		printf("CONSOLE_LOG: cannot open log '%s': errno=%d\n",
 		       logName, errno);
