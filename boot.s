@@ -23,7 +23,31 @@
 
 .globl Start
 
+// The following is designed to ensure a v2 pi is not in hyp mode
+// It does nothing on v1
 Start:
+    mrs     r3,cpsr                     // get the current program status register
+    and     r3,#0x1f                    // and mask out the mode bits
+    cmp     r3,#0x1a                    // are we in hyp mode?
+    beq     hyp                         // if we are in hyp mode, go to that section
+    cpsid   iaf,#0x13                   // if not switch to svc mode, ensure we have a stack for the kernel; no ints
+    b       cont                        // and then jump to set up the stack
+
+// -- from here we are in hyp mode so we need to exception return to the svc mode
+hyp:
+    mrs     r3,cpsr                     // get the cpsr again
+    and     r3,#~0x1f                   // clear the mode bits
+    orr     r3,#0x013                   // set the mode for svc
+    orr     r3,#1<<6|1<<7|1<<8          // disable interrupts as well
+    msr     spsr_cxsf,r3                // and save that in the spsr
+
+    ldr     r3,=cont                    // get the address where we continue
+    msr     elr_hyp,r3                  // store that in the elr register
+
+    eret                                // this is an exception return
+
+// -- everyone continues from here
+cont:
 	mov sp, #0x8000
 
 	/* Clear out bss */

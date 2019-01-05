@@ -41,7 +41,6 @@ CFLAGS += -O3
 QEMUFLAGS += -m 1G -M raspi3 -kernel kernel-qemu.img -usb -nographic
 CFLAGS += -mgeneral-regs-only
 #else
-ASFLAGS += -Wa,-mcpu=arm1176jzf-s
 QEMUFLAGS += -cpu arm1176 -m 256 -M raspi2 -kernel kernel-qemu.img -usb -nographic -dtb $(QEMUDTB)
 #endif
 SDFLAGS = -sd sd.img
