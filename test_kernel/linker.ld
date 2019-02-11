@@ -26,5 +26,10 @@ SECTIONS
 		*(.bss)
 		ebss = .;
 	}
+
+	.comment (INFO) :
+	{
+		LONG(0xdeadbeef)
+	}
 }
 
