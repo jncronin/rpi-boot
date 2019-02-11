@@ -713,7 +713,7 @@ int method_kernel(char *args)
 			if(phdr->p_type != PT_LOAD)
 				continue;
 
-			uint32_t start = (uint32_t)phdr->p_vaddr;
+			uint32_t start = (uint32_t)phdr->p_paddr;
 			uint32_t length = (uint32_t)phdr->p_memsz;
 
 			// Check we can load to this address
