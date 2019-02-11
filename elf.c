@@ -125,7 +125,7 @@ int elf32_read_phdrs(FILE *fp, Elf32_Ehdr *ehdr, uint8_t **phdrs)
 
 int elf32_load_segment(FILE *fp, Elf32_Phdr *phdr)
 {
-	uintptr_t load_address = phdr->p_vaddr;
+	uintptr_t load_address = phdr->p_paddr;
 	if(phdr->p_filesz)
 	{
 		// Load the file image
