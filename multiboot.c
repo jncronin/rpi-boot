@@ -334,63 +334,72 @@ int method_multiboot(char *args)
 		if(retno != ELF_OK)
 		{
 			free(ehdr);
+			fclose(fp);
+			return retno;
+		}
+		uint8_t *ph_buf;
+		retno = elf32_read_phdrs(fp, ehdr, &ph_buf);
+		if(retno != ELF_OK)
+		{
+			free(sh_buf);
+			free(ehdr);
+			fclose(fp);
 			return retno;
 		}
 
+		entry_addr = ehdr->e_entry;
+
 		// Now interpret and load them
 		//
-		// We do two passes - first loading the sections marked ALLOC to their
+		// We do two passes - first loading the segments from prog headers to their
 		// appropriate addresses, then loading the others (Multiboot requires
 		// we load all sections).  This ensures we don't load the sections not
 		// marked ALLOC to an address that a later section requires.
 
-		for(unsigned int i = 0; i < ehdr->e_shnum; i++)
+		for(unsigned int i = 0; i < ehdr->e_phnum; i++)
 		{
-			Elf32_Shdr *shdr = (Elf32_Shdr *)&sh_buf[i * ehdr->e_shentsize];
+			Elf32_Phdr *phdr = (Elf32_Phdr *)&ph_buf[i * ehdr->e_phentsize];
 
-			if(shdr->sh_flags & SHF_ALLOC)
+			if(phdr->p_type != PT_LOAD)
+				continue;
+
+			uint32_t start = (uint32_t)phdr->p_paddr;
+			uint32_t length = (uint32_t)phdr->p_memsz;
+
+			// Check we can load to this address
+			if(!chunk_get_chunk(start, length))
 			{
+				free(ehdr);
+				free(sh_buf);
+				free(ph_buf);
+				fclose(fp);
+				return retno;
+			}
+
+			// Load the segment
+			retno = elf32_load_segment(fp, phdr);
+			if(retno != ELF_OK)
+			{
+				free(ehdr);
+				free(sh_buf);
+				free(ph_buf);
+				fclose(fp);
+				return retno;
+			}
+
 #ifdef MULTIBOOT_DEBUG
-				printf("MULTIBOOT: section %i is loadable\n", i);
+			printf("MULTIBOOT: segment at %x\n", start);
 #endif
 
-				// Try and allocate space for it
-				if(!shdr->sh_addr)
-				{
-					printf("MULTIBOOT: section %i has no defined "
-							"load address\n", i);
-					free(ehdr);
-					free(sh_buf);
-					return -1;
-				}
-				if(!shdr->sh_size)
-				{
-					printf("MULTIBOOT: section %i has no defined "
-							"size\n", i);
-					free(ehdr);
-					free(sh_buf);
-					return -1;
-				}
-
-				if(!chunk_get_chunk(shdr->sh_addr, shdr->sh_size))
-				{
-					printf("MULTIBOOT: unable to allocate a chunk "
-						"between 0x%08x and 0x%08x for section %i\n",
-						shdr->sh_addr, shdr->sh_addr + shdr->sh_size,
-						i);
-					free(ehdr);
-					free(sh_buf);
-					return -1;
-				}
-
-				// Now load or zero it
-				retno = elf32_load_section(fp, shdr);
-				if(retno != ELF_OK)
-				{
-					free(ehdr);
-					free(sh_buf);
-					return retno;
-				}
+			// Is there an entry point contained within this segment?
+			if(entry_addr >= phdr->p_vaddr &&
+				entry_addr < (phdr->p_vaddr + phdr->p_memsz))
+			{
+				// If so, convert it from a virtual to physical address
+				entry_addr = entry_addr - phdr->p_vaddr + phdr->p_paddr;
+#ifdef MULTIBOOT_DEBUG
+				printf("MULTIBOOT: entry address at physical addr %x\n", entry_addr);
+#endif
 			}
 		}
 
@@ -400,10 +409,6 @@ int method_multiboot(char *args)
 
 			if(!(shdr->sh_flags & SHF_ALLOC))
 			{
-#ifdef MULTIBOOT_DEBUG
-				printf("MULTIBOOT: section %i is not loadable\n", i);
-#endif
-
 				if(shdr->sh_size)
 				{
 					uint32_t load_addr = chunk_get_any_chunk(shdr->sh_size);
@@ -424,6 +429,10 @@ int method_multiboot(char *args)
 						free(sh_buf);
 						return retno;
 					}
+
+#ifdef MULTIBOOT_DEBUG
+					printf("MULTIBOOT: section %i at %x\n", i, load_addr);
+#endif
 				}
 			}
 		}
@@ -435,9 +444,8 @@ int method_multiboot(char *args)
 		mbinfo->u.elf_sec.shndx = ehdr->e_shstrndx;
 		mbinfo->flags |= (1 << 6);
 
-		entry_addr = ehdr->e_entry;
-
 		free(ehdr);
+		free(ph_buf);
 	}
 
 	// Set the cmd line
