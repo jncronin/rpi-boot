@@ -30,6 +30,11 @@ CFLAGS += -mfloat-abi=soft
 CFLAGS += -fno-builtin
 CFLAGS += -fno-tree-loop-distribute-patterns
 
+ASFLAGS += -march=armv7ve
+ASFLAGS += -mcpu=arm1176jzf-s
+ASFLAGS += -mfloat-abi=soft
+
+
 #ifdef DEBUG
 CFLAGS += -g -O0
 ASSERT_OBJS = assert.o
